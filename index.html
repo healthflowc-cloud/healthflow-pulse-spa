@@ -1,0 +1,2422 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HealthFlow Pulse: Diagnóstico de Processos</title>
+    <!-- Carrega Tailwind CSS via CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Carrega React e ReactDOM via CDN (versão development para depuração) -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <!-- Carrega Babel para transpilar JSX no navegador (apenas para desenvolvimento/demonstração de arquivo único) -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Font Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f0f4f8; /* Cor de fundo suave */
+        }
+        /* Paleta Brilliant Blues: #003f5c, #7a5195, #ef5675, #ffa600, #374c80, #bc5090, #ff764a */
+        .text-primary { color: #003f5c; }
+        .bg-primary { background-color: #003f5c; }
+        .text-accent-1 { color: #7a5195; }
+        .bg-accent-1 { background-color: #7a5195; }
+        .text-accent-2 { color: #ef5675; }
+        .bg-accent-2 { background-color: #ef5675; }
+        .text-highlight { color: #ffa600; }
+        .bg-highlight { background-color: #ffa600; }
+        .text-secondary { color: #374c80; }
+        .bg-secondary { background-color: #374c80; }
+        .text-accent-3 { color: #bc5090; }
+        .bg-accent-3 { background-color: #bc5090; }
+        .text-accent-4 { color: #ff764a; }
+        .bg-accent-4 { background-color: #ff764a; }
+
+        /* Estilos para cards de opção */
+        .option-card {
+            @apply flex flex-col items-center justify-center p-6 bg-white rounded-xl shadow-md transition-all duration-300 cursor-pointer border-2 border-transparent;
+        }
+        .option-card:hover {
+            @apply shadow-lg transform scale-105 border-accent-1;
+        }
+        .option-card.selected {
+            @apply border-accent-1 bg-accent-1 text-white shadow-xl transform scale-105;
+        }
+        .option-card.selected .icon {
+            @apply text-highlight;
+        }
+        .option-card .icon {
+            @apply text-5xl mb-3 text-accent-1 transition-colors duration-300;
+        }
+        .option-card.selected .text-content {
+            @apply text-white;
+        }
+        .option-card .text-content {
+            @apply text-center text-lg font-medium text-primary transition-colors duration-300;
+        }
+
+        /* Animação de fade-in */
+        .fade-enter {
+            opacity: 0;
+        }
+        .fade-enter-active {
+            opacity: 1;
+            transition: opacity 0.5s ease-in-out;
+        }
+        .fade-exit {
+            opacity: 1;
+        }
+        .fade-exit-active {
+            opacity: 0;
+            transition: opacity 0.5s ease-in-out;
+        }
+
+        /* Estilo para simular IA pensando */
+        .loading-dots {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 30px;
+        }
+        .loading-dots span {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background-color: #7a5195;
+            border-radius: 50%;
+            margin: 0 4px;
+            animation: bounce 1.4s infinite ease-in-out both;
+        }
+        .loading-dots span:nth-child(1) { animation-delay: -0.32s; }
+        .loading-dots span:nth-child(2) { animation-delay: -0.16s; }
+        @keyframes bounce {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1); }
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+        const { createRoot } = ReactDOM;
+
+        // --- DADOS DAS PERGUNTAS E LÓGICA ---
+        // Aqui definimos todas as perguntas do formulário. A lógica de ramificação é crucial.
+        // A chave `nextStep` em cada pergunta pode ser uma função para lógica complexa ou uma string para o próximo ID.
+        // `pathKey` é usado para agrupar perguntas por caminho principal (A, B, C, etc.).
+        const questionsData = {
+            'welcome': {
+                id: 'welcome',
+                type: 'welcome',
+                title: 'Bem-vindo(a) ao seu Diagnóstico Aprofundado HealthFlow PRO!',
+                message: 'Em **15 minutos**, vamos desvendar os mistérios dos seus processos e identificar oportunidades de eficiência. Sua jornada começa agora.',
+                cta: 'Começar Diagnóstico',
+                nextStep: 'info_inicial',
+            },
+            'info_inicial': {
+                id: 'info_inicial',
+                type: 'text_select_split', // Um tipo customizado para função + tipo de instituição
+                question: 'Para começarmos, qual a sua função na instituição e o tipo de instituição de saúde que você representa?',
+                inputs: [
+                    { id: 'funcao', label: 'Sua Função:', type: 'text', placeholder: 'Ex: Gerente Administrativo' },
+                    { id: 'instituicao_tipo', label: 'Tipo de Instituição:', type: 'select', options: [
+                        { value: 'clinica_imagem', label: 'Clínica de Diagnóstico por Imagem' },
+                        { value: 'hosp_pequeno', label: 'Hospital Privado (Pequeno: até 50 leitos)' },
+                        { value: 'hosp_medio', label: 'Hospital Privado (Médio: 51-200 leitos)' },
+                        { value: 'hosp_grande', label: 'Hospital Privado (Grande: mais de 200 leitos)' },
+                        { value: 'clinica_especializada', label: 'Clínica Especializada' },
+                        { value: 'laboratorio', label: 'Laboratório de Análises Clínicas' },
+                        { value: 'outro_tipo', label: 'Outro' },
+                    ]}
+                ],
+                feedback: (responses) => `Ótimo, ${responses.funcao} de ${responses.instituicao_tipo}! Sua perspectiva é valiosa. Estamos prontos para iniciar a imersão.`,
+                nextStep: 'gargalo_critico',
+            },
+            'gargalo_critico': {
+                id: 'gargalo_critico',
+                type: 'choice_cards',
+                question: 'Para iniciarmos nossa investigação, qual é o gargalo mais CRÍTICO que está gerando mais dor de cabeça e prejuízo na sua operação HOJE?',
+                options: [
+                    { value: 'agendamento', label: 'Agendamento & No-Shows Destrutivos', icon: '🗓️' },
+                    { value: 'faturamento', label: 'Faturamento & Glosas que Drenam o Caixa', icon: '💸' },
+                    { value: 'fluxo_pacientes', label: 'Fluxo de Pacientes Lento & Quebras de Atendimento', icon: '🚶‍♀️' },
+                    { value: 'laudos', label: 'Laudos & Resultados Crônica e Atrasados', icon: '⏰' },
+                    { value: 'equipe_resistente', label: 'Equipe Resistente a Novas Tecnologias ou Novas Rotinas', icon: '🛡️' },
+                    { value: 'estoque', label: 'Gestão de Estoque & Insumos Ineficiente', icon: '📦' },
+                    { value: 'outro_gargalo', label: 'Outro', icon: '❓' },
+                ],
+                feedback: (responses, selectedOption) => `Excelente foco. Este é o epicentro da nossa análise. A partir de agora, o RapidMapper PRO vai desvendar as camadas desse desafio.`,
+                nextStep: (responses) => {
+                    const selectedGargalo = responses.gargalo_critico;
+                    if (selectedGargalo === 'agendamento') return 'agendamento_canais'; // Caminho A
+                    if (selectedGargalo === 'faturamento') return 'faturamento_volume_mensal'; // Caminho B
+                    if (selectedGargalo === 'fluxo_pacientes') return 'pacientes_percurso_as_is'; // Caminho C
+                    if (selectedGargalo === 'laudos') return 'laudos_etapas_principais'; // Caminho D
+                    if (selectedGargalo === 'equipe_resistente') return 'equipe_tipo_resistencia'; // Caminho E
+                    if (selectedGargalo === 'estoque') return 'estoque_fluxo_insumo_as_is'; // Caminho F
+                    if (selectedGargalo === 'outro_gargalo') return 'outro_gargalo_detalhe'; // Caminho G
+                    return 'welcome'; // Fallback para o início se algo der errado
+                },
+                pathIndicator: { step: 1, total: 4, label: 'Fase 1: Contexto Inicial' }
+            },
+
+            // --- CAMINHO A: AGENDAMENTO & NO-SHOWS DESTRUTIVOS ---
+            'agendamento_canais': {
+                id: 'agendamento_canais',
+                pathKey: 'agendamento',
+                type: 'multiple_choice_buttons',
+                question: 'Sua equipe realmente domina o processo de agendamento? Em quais canais ele se torna um pesadelo?',
+                options: [
+                    { value: 'telefone', label: 'Telefone' },
+                    { value: 'whatsapp_atendente', label: 'WhatsApp (com atendente)' },
+                    { value: 'whatsapp_chatbot', label: 'WhatsApp (chatbot)' },
+                    { value: 'app_proprio', label: 'Aplicativo Próprio' },
+                    { value: 'site_formulario', label: 'Site (Formulário)' },
+                    { value: 'presencialmente', label: 'Presencialmente' },
+                    { value: 'indicacao_medica', label: 'Indicação Médica (direta)' },
+                    { value: 'outros_canais', label: 'Outros' },
+                ],
+                feedback: 'Entendido. A origem do problema muitas vezes começa na entrada.',
+                nextStep: 'agendamento_sistema_principal',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'agendamento_sistema_principal': {
+                id: 'agendamento_sistema_principal',
+                pathKey: 'agendamento',
+                type: 'multiple_choice_buttons',
+                question: 'Qual sistema REALMENTE dita o ritmo do seu agendamento? (Seja sincero: ERP, planilha, ou uma mistura de caos?)',
+                options: [
+                    { value: 'tasy', label: 'Tasy' },
+                    { value: 'mv', label: 'MV' },
+                    { value: 'pixeon', label: 'Pixeon' },
+                    { value: 'outro_erp', label: 'Outro ERP de Saúde' },
+                    { value: 'sistema_proprio', label: 'Sistema Próprio' },
+                    { value: 'planilha_excel', label: 'Planilha de Excel' },
+                    { value: 'papel_manual', label: 'Papel/Manual' },
+                    { value: 'nenhum', label: 'Nenhum' },
+                ],
+                nextStep: (responses) => {
+                    const sys = responses.agendamento_sistema_principal;
+                    if (['tasy', 'mv', 'pixeon', 'outro_erp'].includes(sys)) return 'agendamento_falha_erp';
+                    if (['sistema_proprio', 'planilha_excel', 'papel_manual', 'nenhum'].includes(sys)) return 'agendamento_passo_critico_manual';
+                    return 'agendamento_percentual_remarcacoes'; // Fallback se nenhuma condição for atendida (não deveria acontecer)
+                },
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'agendamento_falha_erp': {
+                id: 'agendamento_falha_erp',
+                pathKey: 'agendamento',
+                type: 'textarea_input',
+                question: 'Seu ERP [@answer_to_question_agendamento_sistema_principal] é uma solução ou um obstáculo no agendamento? Qual a MAIOR falha dele que te frustra diariamente?',
+                inputProps: { type: 'textarea', placeholder: 'Ex: Lentidão, erros de sincronização, relatórios incompletos', maxLength: 500 },
+                nextStep: 'agendamento_percentual_remarcacoes',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'agendamento_passo_critico_manual': {
+                id: 'agendamento_passo_critico_manual',
+                pathKey: 'agendamento',
+                type: 'textarea_input',
+                question: 'Descreva o \'passo a passo\' mais crítico do seu agendamento. Onde a bola mais CAI no chão?',
+                inputProps: { type: 'textarea', placeholder: 'Ex: Paciente liga -> Atendente agenda em planilha -> Confirmação manual', maxLength: 500 },
+                nextStep: 'agendamento_percentual_remarcacoes',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'agendamento_percentual_remarcacoes': {
+                id: 'agendamento_percentual_remarcacoes',
+                pathKey: 'agendamento',
+                type: 'opinion_scale',
+                question: 'Sem rodeios: Qual a % de remarcações ou faltas (no-shows) que você sabe que perde por MÊS? (Isso é dinheiro voando!)',
+                options: [
+                    { value: '0-5', label: '0-5%' }, { value: '6-10', label: '6-10%' },
+                    { value: '11-15', label: '11-15%' }, { value: '16-20', label: '16-20%' },
+                    { value: '>20', label: 'Acima de 20%' },
+                ],
+                nextStep: 'agendamento_confirmacao',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'agendamento_confirmacao': {
+                id: 'agendamento_confirmacao',
+                pathKey: 'agendamento',
+                type: 'multiple_choice_buttons',
+                question: 'Como vocês \'tentam\' confirmar os agendamentos? Isso realmente funciona?',
+                options: [
+                    { value: 'automatica', label: 'Sim, automática (SMS/WhatsApp/E-mail)' },
+                    { value: 'manual', label: 'Sim, manual (telefonema pela equipe)' },
+                    { value: 'misto', label: 'Misto (parte manual, parte automática)' },
+                    { value: 'nao_fazemos', label: 'Não fazemos' },
+                ],
+                nextStep: 'agendamento_ticket_medio',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'agendamento_ticket_medio': {
+                id: 'agendamento_ticket_medio',
+                pathKey: 'agendamento',
+                type: 'text_input', // Usando text_input para número, para maior flexibilidade e placeholder
+                question: 'Qual o valor médio (ticket médio) de um procedimento/consulta que é REMARCADO ou FALTANDO? (Para calcularmos sua perda real)',
+                inputProps: { type: 'number', placeholder: 'Ex: 150.00', min: 0 },
+                feedback: 'Seu RapidMapper está calculando o custo EXATO desse gargalo. Prepare-se para o número!',
+                nextStep: 'agendamento_visibilidade_sistema',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'agendamento_visibilidade_sistema': {
+                id: 'agendamento_visibilidade_sistema',
+                pathKey: 'agendamento',
+                type: 'multiple_choice_buttons',
+                question: 'Seu sistema atual dá visibilidade que PRECISA sobre agendamentos e no-shows?',
+                options: [
+                    { value: 'sim_totalmente', label: 'Sim, totalmente' },
+                    { value: 'sim_lacunas', label: 'Sim, mas com lacunas' },
+                    { value: 'nao_buraco_negro', label: 'Não, é um \'buraco negro\'' },
+                    { value: 'nao_temos_sistema', label: 'Não temos sistema' },
+                ],
+                nextStep: 'agendamento_mudanca_perfeito',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'agendamento_mudanca_perfeito': {
+                id: 'agendamento_mudanca_perfeito',
+                pathKey: 'agendamento',
+                type: 'textarea_input',
+                question: 'Imagine o agendamento PERFEITO. Qual seria a principal mudança que você faria para chegar lá HOJE, se não houvesse barreiras?',
+                inputProps: { type: 'textarea', placeholder: 'Descreva sua visão (máx. 500 caracteres)', maxLength: 500 },
+                feedback: 'Seu input é ouro. Estamos mapeando a rota para a sua eficiência máxima.',
+                nextStep: 'ai_mini_report', // Fim do Caminho A, vai para o Mini-Relatório da IA
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+
+            // --- CAMINHO B: FATURAMENTO & GLOSAS QUE DRENAM O CAIXA ---
+            'faturamento_volume_mensal': {
+                id: 'faturamento_volume_mensal',
+                pathKey: 'faturamento',
+                type: 'opinion_scale', // Usando opinion_scale para representar escala de volume
+                question: 'Qual o volume médio de faturamento mensal que sua instituição GERA? (Para dimensionarmos o impacto)',
+                options: [
+                    { value: 'ate_500k', label: 'Até R$500 mil' },
+                    { value: '500k_2m', label: 'R$500 mil - R$2 milhões' },
+                    { value: '2m_5m', label: 'R$2 milhões - R$5 milhões' },
+                    { value: 'acima_5m', label: 'Acima de R$5 milhões' },
+                ],
+                nextStep: 'faturamento_sistema_principal',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'faturamento_sistema_principal': {
+                id: 'faturamento_sistema_principal',
+                pathKey: 'faturamento',
+                type: 'multiple_choice_buttons',
+                question: 'Qual sistema principal sua equipe usa para faturar e controlar o dinheiro que ENTRA e SAI?',
+                options: [
+                    { value: 'tasy', label: 'Tasy' },
+                    { value: 'mv', label: 'MV' },
+                    { value: 'pixeon', label: 'Pixeon' },
+                    { value: 'outro_erp', label: 'Outro ERP de Saúde' },
+                    { value: 'sistema_proprio', label: 'Sistema Próprio' },
+                    { value: 'planilha_excel', label: 'Planilha de Excel' },
+                    { value: 'papel_manual', label: 'Papel/Manual' },
+                    { value: 'nenhum', label: 'Nenhum' },
+                ],
+                nextStep: (responses) => {
+                    const sys = responses.faturamento_sistema_principal;
+                    if (['tasy', 'mv', 'pixeon', 'outro_erp'].includes(sys)) return 'faturamento_falha_erp';
+                    if (['sistema_proprio', 'planilha_excel', 'papel_manual', 'nenhum'].includes(sys)) return 'faturamento_etapa_obscura_manual';
+                    return 'faturamento_percentual_glosas'; // Fallback
+                },
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'faturamento_falha_erp': {
+                id: 'faturamento_falha_erp',
+                pathKey: 'faturamento',
+                type: 'textarea_input',
+                question: 'Qual o ponto mais CRÍTICO do seu sistema [@answer_to_question_faturamento_sistema_principal] que GERA glosas ou retrabalho?',
+                inputProps: { type: 'textarea', placeholder: 'Ex: Lentidão, dificuldade de auditoria, falhas de integração', maxLength: 500 },
+                nextStep: 'faturamento_percentual_glosas',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'faturamento_etapa_obscura_manual': {
+                id: 'faturamento_etapa_obscura_manual',
+                pathKey: 'faturamento',
+                type: 'textarea_input',
+                question: 'Descreva a etapa mais \'obscura\' ou propensa a erros no seu ciclo de faturamento. Onde o dinheiro está ESCAPANDO?',
+                inputProps: { type: 'textarea', placeholder: 'Ex: Erros na transcrição manual de dados, falta de conferência', maxLength: 500 },
+                nextStep: 'faturamento_percentual_glosas',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'faturamento_percentual_glosas': {
+                id: 'faturamento_percentual_glosas',
+                pathKey: 'faturamento',
+                type: 'opinion_scale',
+                question: 'Seja direto: Qual a % de glosas que sua instituição ACUMULA por mês? (Isso é receita perdida!)',
+                options: [
+                    { value: '0-2', label: '0-2%' }, { value: '3-5', label: '3-5%' },
+                    { value: '6-10', label: '6-10%' }, { value: '11-15', label: '11-15%' },
+                    { value: '>15', label: 'Mais de 15%' },
+                ],
+                nextStep: 'faturamento_erros_comuns_glosas',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'faturamento_erros_comuns_glosas': {
+                id: 'faturamento_erros_comuns_glosas',
+                pathKey: 'faturamento',
+                type: 'multiple_choice_buttons',
+                question: 'Quais os 3 erros MAIS COMUNS que causam essas glosas e roubam sua receita? (Priorize)',
+                options: [
+                    { value: 'inconsistencia_cadastro', label: 'Inconsistência de Cadastro' },
+                    { value: 'erro_convenio', label: 'Erro Convênio' },
+                    { value: 'falta_documentacao', label: 'Falta Documentação' },
+                    { value: 'atraso_envio', label: 'Atraso Envio' },
+                    { value: 'erro_codificacao', label: 'Erro Codificação' },
+                    { value: 'recusa_procedimento', label: 'Recusa Procedimento' },
+                    { value: 'duplicidade', label: 'Duplicidade' },
+                    { value: 'outros_erros', label: 'Outros' },
+                ],
+                maxSelections: 3,
+                nextStep: 'faturamento_tempo_retrabalho',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'faturamento_tempo_retrabalho': {
+                id: 'faturamento_tempo_retrabalho',
+                pathKey: 'faturamento',
+                type: 'opinion_scale',
+                question: 'Quanto tempo sua equipe GASTA, por semana, CORRIGINDO glosas e retrabalhos de faturamento?',
+                options: [
+                    { value: '<4h', label: '< 4h' }, { value: '4-8h', label: '4-8h' },
+                    { value: '8-16h', label: '8-16h' }, { value: '16-30h', label: '16-30h' },
+                    { value: '>30h', label: '> 30h' },
+                ],
+                feedback: 'O RapidMapper está destrinchando o custo da sua ineficiência. Os números não mentem!',
+                nextStep: 'faturamento_visibilidade_sistema',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'faturamento_visibilidade_sistema': {
+                id: 'faturamento_visibilidade_sistema',
+                pathKey: 'faturamento',
+                type: 'multiple_choice_buttons',
+                question: 'Seu sistema atual dá visibilidade CLARA sobre o porquê das glosas e como evitá-las?',
+                options: [
+                    { value: 'sim_totalmente', label: 'Sim, totalmente' },
+                    { value: 'sim_lacunas', label: 'Sim, mas com falhas' },
+                    { value: 'nao_caixa_preta', label: 'Não, é uma \'caixa preta\'' },
+                    { value: 'nao_temos_sistema', label: 'Não temos sistema' },
+                ],
+                nextStep: 'faturamento_eliminar_erro_ganho',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'faturamento_eliminar_erro_ganho': {
+                id: 'faturamento_eliminar_erro_ganho',
+                pathKey: 'faturamento',
+                type: 'textarea_input',
+                question: 'Se pudesse eliminar APENAS UM tipo de erro no seu faturamento HOJE, qual seria e qual o GANHO imediato para o seu caixa?',
+                inputProps: { type: 'textarea', placeholder: 'Ex: Eliminar erros de convênio = R$X de ganho por mês', maxLength: 500 },
+                feedback: 'Sua visão é a bússola. Estamos construindo um plano de ação imbatível.',
+                nextStep: 'ai_mini_report', // Fim do Caminho B, vai para o Mini-Relatório da IA
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+
+            // --- CAMINHO C: FLUXO DE PACIENTES LENTO & QUEBRAS DE ATENDIMENTO ---
+            'pacientes_percurso_as_is': {
+                id: 'pacientes_percurso_as_is',
+                pathKey: 'fluxo_pacientes',
+                type: 'textarea_multi_short', // Múltiplos inputs de texto curto para etapas
+                question: 'Vamos mapear a jornada do paciente! Descreva em 3 a 5 etapas principais como um paciente TÍPICO navega pela sua instituição, desde a chegada até a finalização do atendimento.',
+                inputProps: [
+                    { id: 'etapa1', placeholder: 'Etapa 1: Chegada e Recepção', maxLength: 100 },
+                    { id: 'etapa2', placeholder: 'Etapa 2: Triagem/Pré-Consulta', maxLength: 100 },
+                    { id: 'etapa3', placeholder: 'Etapa 3: Sala de Espera', maxLength: 100 },
+                    { id: 'etapa4', placeholder: 'Etapa 4: Atendimento Médico/Exame', maxLength: 100 },
+                    { id: 'etapa5', placeholder: 'Etapa 5: Saída/Faturamento', maxLength: 100 },
+                ],
+                feedback: 'Perfeito! Estamos traçando o caminho do seu paciente. Agora, vamos encontrar os \'pontos de parada\'.',
+                nextStep: 'pacientes_fila_invisivel',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'pacientes_fila_invisivel': {
+                id: 'pacientes_fila_invisivel',
+                pathKey: 'fluxo_pacientes',
+                type: 'multiple_choice_buttons',
+                question: 'Qual destas etapas (que você descreveu) gera a maior \'fila invisível\' ou tempo de espera para o paciente?',
+                options: [ // Opções devem ser baseadas dinamicamente em P3, mas aqui usamos placeholders
+                    { value: 'chegada_recepcao', label: 'Chegada e Recepção' },
+                    { value: 'triagem_pre_consulta', label: 'Triagem/Pré-Consulta' },
+                    { value: 'sala_espera', label: 'Sala de Espera' },
+                    { value: 'atendimento_medico', label: 'Atendimento Médico/Exame' },
+                    { value: 'saida_faturamento', label: 'Saída/Faturamento' },
+                ],
+                nextStep: 'pacientes_repeticao_informacoes',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'pacientes_repeticao_informacoes': {
+                id: 'pacientes_repeticao_informacoes',
+                pathKey: 'fluxo_pacientes',
+                type: 'multiple_choice_buttons',
+                question: 'Onde o paciente REPETE informações que já forneceu antes?',
+                options: [ // Opções devem ser baseadas dinamicamente em P3, mas aqui usamos placeholders
+                    { value: 'chegada_recepcao', label: 'Chegada e Recepção' },
+                    { value: 'triagem_pre_consulta', label: 'Triagem/Pré-Consulta' },
+                    { value: 'atendimento_medico', label: 'Atendimento Médico/Exame' },
+                    { value: 'saida_faturamento', label: 'Saída/Faturamento' },
+                    { value: 'nenhuma', label: 'Em nenhuma, o processo é fluido' },
+                ],
+                nextStep: 'pacientes_tempo_espera_medio',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'pacientes_tempo_espera_medio': {
+                id: 'pacientes_tempo_espera_medio',
+                pathKey: 'fluxo_pacientes',
+                type: 'opinion_scale',
+                question: 'Qual o tempo médio de espera do paciente desde a chegada na instituição até o início EFETIVO do atendimento (consulta, exame, procedimento)?',
+                options: [
+                    { value: '<15min', label: '< 15 min' },
+                    { value: '15-30min', label: '15-30 min' },
+                    { value: '31-60min', label: '31-60 min' },
+                    { value: '61-90min', label: '61-90 min' },
+                    { value: '>90min', label: '> 90 min' },
+                ],
+                nextStep: 'pacientes_causas_atrasos_inesperados',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'pacientes_causas_atrasos_inesperados': {
+                id: 'pacientes_causas_atrasos_inesperados',
+                pathKey: 'fluxo_pacientes',
+                type: 'multiple_choice_buttons',
+                question: 'Quais são as 3 principais causas para quebras ou atrasos INESPERADOS no fluxo do paciente? (Marque até 3)',
+                options: [
+                    { value: 'atraso_ausencia_profissionais', label: 'Atraso/Ausência de Profissionais' },
+                    { value: 'falha_equipamentos', label: 'Falha/Indisponibilidade de Equipamentos' },
+                    { value: 'falta_material_insumos', label: 'Falta de Material/Insumos' },
+                    { value: 'informacoes_incompletas', label: 'Informações Incompletas/Inconsistentes' },
+                    { value: 'burocracia_excessiva', label: 'Burocracia Interna Excessiva' },
+                    { value: 'erro_agendamento', label: 'Erro de Agendamento' },
+                    { value: 'outros_causas', label: 'Outros' },
+                ],
+                maxSelections: 3,
+                nextStep: 'pacientes_transferencia_informacao',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'pacientes_transferencia_informacao': {
+                id: 'pacientes_transferencia_informacao',
+                pathKey: 'fluxo_pacientes',
+                type: 'multiple_choice_buttons',
+                question: 'Quando o paciente \'passa\' de uma área para outra (Ex: Recepção para Triagem; Consulta para Exame), como a informação sobre ele é transferida? É um processo manual (papel/verbal) ou via sistema?',
+                options: [
+                    { value: 'totalmente_sistema', label: 'Totalmente via sistema' },
+                    { value: 'parte_sistema_manual', label: 'Parte via sistema, parte manual/verbal' },
+                    { value: 'totalmente_manual', label: 'Totalmente manual/verbal' },
+                    { value: 'nao_transferencia', label: 'Não há transferência formal' },
+                ],
+                nextStep: 'pacientes_visao_tempo_real',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'pacientes_visao_tempo_real': {
+                id: 'pacientes_visao_tempo_real',
+                pathKey: 'fluxo_pacientes',
+                type: 'multiple_choice_buttons',
+                question: 'Sua equipe consegue ter uma visão clara e em tempo real de ONDE cada paciente está no fluxo e qual o seu próximo passo?',
+                options: [
+                    { value: 'sim_sistema', label: 'Sim, o sistema mostra' },
+                    { value: 'parcialmente_esforco', label: 'Parcialmente, com esforço manual' },
+                    { value: 'nao_ponto_cego', label: 'Não, é um \'ponto cego\'' },
+                    { value: 'nao_temos_sistema', label: 'Não temos sistema para isso' },
+                ],
+                feedback: 'Estamos identificando as lacunas na visibilidade do seu processo. Isso é crítico para a fluidez.',
+                nextStep: 'pacientes_sistema_gestao_fluxo',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'pacientes_sistema_gestao_fluxo': {
+                id: 'pacientes_sistema_gestao_fluxo',
+                pathKey: 'fluxo_pacientes',
+                type: 'multiple_choice_buttons',
+                question: 'Qual sistema principal sua instituição utiliza para gerenciar o fluxo e a jornada do paciente (incluindo filas, direcionamento, etc.)?',
+                options: [
+                    { value: 'tasy', label: 'Tasy' },
+                    { value: 'mv', label: 'MV' },
+                    { value: 'pixeon', label: 'Pixeon' },
+                    { value: 'outro_erp', label: 'Outro ERP de Saúde' },
+                    { value: 'sistema_proprio', label: 'Sistema Próprio' },
+                    { value: 'planilha_excel', label: 'Planilha de Excel' },
+                    { value: 'papel_manual', label: 'Papel/Manual' },
+                    { value: 'nenhum', label: 'Nenhum' },
+                ],
+                nextStep: (responses) => {
+                    const sys = responses.pacientes_sistema_gestao_fluxo;
+                    if (['tasy', 'mv', 'pixeon', 'outro_erp', 'sistema_proprio'].includes(sys)) return 'pacientes_obstaculos_sistema_fluxo';
+                    if (['planilha_excel', 'papel_manual', 'nenhum'].includes(sys)) return 'pacientes_desafio_coordenacao_manual';
+                    return 'pacientes_pessoas_tempo_fluxo'; // Fallback
+                },
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'pacientes_obstaculos_sistema_fluxo': {
+                id: 'pacientes_obstaculos_sistema_fluxo',
+                pathKey: 'fluxo_pacientes',
+                type: 'textarea_input',
+                question: 'No seu sistema [@answer_to_question_pacientes_sistema_gestao_fluxo], quais módulos/funcionalidades são (ou deveriam ser) cruciais para a gestão do fluxo de pacientes? E quais são os maiores \'obstáculos\' ou limitações que ele apresenta na prática?',
+                inputProps: { type: 'textarea', placeholder: 'Ex: Falta de visibilidade, dificuldade de registro, não otimiza a fila', maxLength: 500 },
+                nextStep: 'pacientes_fluxo_informacao_sistema',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'pacientes_fluxo_informacao_sistema': {
+                id: 'pacientes_fluxo_informacao_sistema',
+                pathKey: 'fluxo_pacientes',
+                type: 'textarea_input',
+                question: 'Onde as informações do paciente (cadastro, histórico, exames) são inseridas PELA PRIMEIRA VEZ no sistema [@answer_to_question_pacientes_sistema_gestao_fluxo]? Para quais outros módulos ou áreas (internas ou externas) essa informação PRECISA fluir? Como essa integração é feita (automática, manual, planilha)?',
+                inputProps: { type: 'textarea', placeholder: 'Ex: Inserido na Recepção, fluindo para Prontuário Eletrônico via integração', maxLength: 500 },
+                nextStep: 'pacientes_pessoas_tempo_fluxo',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'pacientes_desafio_coordenacao_manual': {
+                id: 'pacientes_desafio_coordenacao_manual',
+                pathKey: 'fluxo_pacientes',
+                type: 'textarea_input',
+                question: 'Descreva o maior desafio de coordenação e rastreabilidade que vocês enfrentam por não ter um sistema integrado de gestão do fluxo de pacientes. Como vocês tentam \'contornar\' essa lacuna hoje?',
+                inputProps: { type: 'textarea', placeholder: 'Ex: Chamar pacientes manualmente, procurar prontuários físicos', maxLength: 500 },
+                nextStep: 'pacientes_pessoas_tempo_fluxo',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'pacientes_pessoas_tempo_fluxo': {
+                id: 'pacientes_pessoas_tempo_fluxo',
+                pathKey: 'fluxo_pacientes',
+                type: 'number_select_split',
+                question: 'Quantas pessoas (aproximadamente) da sua equipe (Recepção, Enfermagem, etc.) estão envolvidas diretamente na \'coordenação\' do fluxo de pacientes? Qual o tempo médio diário que elas dedicam a tarefas manuais para isso?',
+                inputs: [
+                    { id: 'pessoas_envolvidas', label: 'Pessoas Envolvidas:', type: 'number', placeholder: 'Ex: 3', min: 1 },
+                    { id: 'tempo_manual_fluxo', label: 'Tempo Diário Manual:', type: 'select', options: [
+                        { value: '<1h', label: '< 1h' }, { value: '1-2h', label: '1-2h' },
+                        { value: '2-4h', label: '2-4h' }, { value: '>4h', label: '> 4h' },
+                    ]}
+                ],
+                feedback: 'O RapidMapper está quantificando o custo da ineficiência. Os números vão te surpreender!',
+                nextStep: 'pacientes_impacto_financeiro_lentidao',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'pacientes_impacto_financeiro_lentidao': {
+                id: 'pacientes_impacto_financeiro_lentidao',
+                pathKey: 'fluxo_pacientes',
+                type: 'number_select',
+                question: 'Qual o impacto financeiro estimado da lentidão no fluxo de pacientes? (Ex: perda de pacientes, cancelamento de consultas, ociosidade de equipe/equipamento)?',
+                inputProps: { type: 'number', placeholder: 'Ex: 10000', min: 0 },
+                selectOptions: [
+                    { value: 'pequeno', label: 'Pequeno (Até R$5k)' },
+                    { value: 'moderado', label: 'Moderado (R$5k-R$20k)' },
+                    { value: 'significativo', label: 'Significativo (Acima de R$20k)' },
+                ],
+                feedback: 'Seu RapidMapper está quantificando o custo da ineficiência. Os números vão te surpreender!',
+                nextStep: 'pacientes_satisfacao_tempo_espera',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'pacientes_satisfacao_tempo_espera': {
+                id: 'pacientes_satisfacao_tempo_espera',
+                pathKey: 'fluxo_pacientes',
+                type: 'opinion_scale',
+                question: 'Qual o nível de satisfação do paciente em relação ao tempo de espera e à fluidez do atendimento na sua instituição?',
+                options: [
+                    { value: 'muito_insatisfeito', label: 'Muito Insatisfeito' },
+                    { value: 'insatisfeito', label: 'Insatisfeito' },
+                    { value: 'neutro', label: 'Neutro' },
+                    { value: 'satisfeito', label: 'Satisfeito' },
+                    { value: 'muito_satisfeito', label: 'Muito Satisfeito' },
+                ],
+                nextStep: 'pacientes_impacto_equipe_lentidao',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'pacientes_impacto_equipe_lentidao': {
+                id: 'pacientes_impacto_equipe_lentidao',
+                pathKey: 'fluxo_pacientes',
+                type: 'multiple_choice_buttons',
+                question: 'Como a lentidão no fluxo afeta a sua equipe? (Ex: estresse, retrabalho, reclamações de pacientes?)',
+                options: [
+                    { value: 'estresse_burnout', label: 'Estresse/Burnout' },
+                    { value: 'retrabalho', label: 'Retrabalho' },
+                    { value: 'reclamacoes_pacientes', label: 'Reclamações de pacientes' },
+                    { value: 'desmotivacao', label: 'Desmotivação' },
+                    { value: 'impacto_qualidade', label: 'Impacto na qualidade do atendimento' },
+                    { value: 'outros', label: 'Outros' },
+                ],
+                maxSelections: 2,
+                nextStep: 'pacientes_mudanca_ideal',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'pacientes_mudanca_ideal': {
+                id: 'pacientes_mudanca_ideal',
+                pathKey: 'fluxo_pacientes',
+                type: 'textarea_input',
+                question: 'Se você pudesse redesenhar o fluxo de pacientes do zero, eliminando todas as barreiras, qual seria a principal mudança para atingir o \'atendimento ideal\'?',
+                inputProps: { type: 'textarea', placeholder: 'Descreva sua visão para o fluxo perfeito (máx. 500 caracteres)', maxLength: 500 },
+                feedback: 'Sua visão é a bússola para o RapidMapper PRO traçar a rota da excelência e da agilidade.',
+                nextStep: 'ai_mini_report', // Fim do Caminho C, vai para o Mini-Relatório da IA
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+
+            // --- CAMINHO D: LAUDOS & RESULTADOS CRÔNICA E ATRASADOS ---
+            'laudos_etapas_principais': {
+                id: 'laudos_etapas_principais',
+                pathKey: 'laudos',
+                type: 'textarea_multi_short',
+                question: 'Vamos rastrear a jornada de um exame ou laudo! Descreva em 3 a 5 etapas principais como um pedido de exame/laudo se move desde a solicitação médica até a entrega do resultado final ao paciente/médico.',
+                inputProps: [
+                    { id: 'etapa1', placeholder: 'Etapa 1: Solicitação Médica', maxLength: 100 },
+                    { id: 'etapa2', placeholder: 'Etapa 2: Coleta/Realização do Exame', maxLength: 100 },
+                    { id: 'etapa3', placeholder: 'Etapa 3: Análise/Processamento', maxLength: 100 },
+                    { id: 'etapa4', placeholder: 'Etapa 4: Digitação/Assinatura do Laudo', maxLength: 100 },
+                    { id: 'etapa5', placeholder: 'Etapa 5: Entrega do Resultado', maxLength: 100 },
+                ],
+                feedback: 'Perfeito! Estamos desenhando o fluxo de informação. Agora, vamos identificar onde a \'velocidade\' diminui.',
+                nextStep: 'laudos_info_presa',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'laudos_info_presa': {
+                id: 'laudos_info_presa',
+                pathKey: 'laudos',
+                type: 'multiple_choice_buttons',
+                question: 'Qual etapa gera maior \'fila invisível\' ou tempo de espera para o paciente?',
+                options: [ // Opções baseadas nas etapas acima
+                    { value: 'solicitacao_medica', label: 'Solicitação Médica' },
+                    { value: 'coleta_realizacao', label: 'Coleta/Realização do Exame' },
+                    { value: 'analise_processamento', label: 'Análise/Processamento' },
+                    { value: 'digitacao_assinatura', label: 'Digitação/Assinatura do Laudo' },
+                    { value: 'entrega_resultado', label: 'Entrega do Resultado' },
+                ],
+                nextStep: 'laudos_processo_atrasados',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'laudos_processo_atrasados': {
+                id: 'laudos_processo_atrasados',
+                pathKey: 'laudos',
+                type: 'textarea_input',
+                question: 'Quando um laudo está atrasado, qual é o processo interno para identificá-lo e acelerar sua liberação? Quem é acionado?',
+                inputProps: { type: 'textarea', placeholder: 'Descreva o fluxo de escalonamento (máx. 500 caracteres)', maxLength: 500 },
+                feedback: 'Compreender as contingências é vital. Isso nos mostra a resiliência (ou a falta dela) do seu processo.',
+                nextStep: 'laudos_tempo_liberacao_simples',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'laudos_tempo_liberacao_simples': {
+                id: 'laudos_tempo_liberacao_simples',
+                pathKey: 'laudos',
+                type: 'opinion_scale',
+                question: 'Qual o tempo médio de liberação para laudos/resultados de exames SIMPLES (ex: sangue, urina, raio-X) na sua instituição, desde a coleta até a disponibilização?',
+                options: [
+                    { value: '<12h', label: '< 12h' }, { value: '12-24h', label: '12-24h' },
+                    { value: '24-48h', label: '24-48h' }, { value: '>48h', label: '> 48h' },
+                ],
+                nextStep: 'laudos_tempo_liberacao_complexos',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'laudos_tempo_liberacao_complexos': {
+                id: 'laudos_tempo_liberacao_complexos',
+                pathKey: 'laudos',
+                type: 'opinion_scale',
+                question: 'E para laudos/resultados de exames COMPLEXOS (ex: ressonância, tomografia, biópsia), qual o tempo médio de liberação?',
+                options: [
+                    { value: '<48h', label: '< 48h' }, { value: '48-72h', label: '48-72h' },
+                    { value: '72h-5d', label: '72h-5 dias' }, { value: '>5d', label: '> 5 dias' },
+                ],
+                nextStep: 'laudos_causas_atrasos_cronicos',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'laudos_causas_atrasos_cronicos': {
+                id: 'laudos_causas_atrasos_cronicos',
+                pathKey: 'laudos',
+                type: 'multiple_choice_buttons',
+                question: 'Quais são as 3 principais causas que levam a atrasos CRÔNICOS na liberação de laudos/resultados? (Marque até 3)',
+                options: [
+                    { value: 'falha_equipamentos', label: 'Falha/Indisponibilidade de Equipamentos' },
+                    { value: 'falta_profissionais', label: 'Falta de Profissionais (médicos laudadores/técnicos)' },
+                    { value: 'problemas_coleta_amostra', label: 'Problemas na Coleta/Processamento da Amostra' },
+                    { value: 'lentidao_digitacao_revisao', label: 'Lentidão na Digitação/Revisão do Laudo' },
+                    { value: 'atraso_assinatura_medica', label: 'Atraso na Assinatura Médica' },
+                    { value: 'dificuldade_comunicacao', label: 'Dificuldade de Comunicação Interdepartamental' },
+                    { value: 'erros_registro_identificacao', label: 'Erros de Registro/Identificação' },
+                    { value: 'outros_causas', label: 'Outros' },
+                ],
+                maxSelections: 3,
+                nextStep: 'laudos_frequencia_refeitos',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'laudos_frequencia_refeitos': {
+                id: 'laudos_frequencia_refeitos',
+                pathKey: 'laudos',
+                type: 'opinion_scale',
+                question: 'Quantas vezes por semana, em média, sua equipe precisa refazer exames ou coletas devido a erros no processo de laudo/resultado?',
+                options: [
+                    { value: 'nunca', label: 'Nunca' }, { value: 'raramente', label: 'Raramente (1-2x/mês)' },
+                    { value: 'algumas_vezes', label: 'Algumas vezes por semana' }, { value: 'diariamente', label: 'Diariamente' },
+                ],
+                feedback: 'Estamos quantificando o retrabalho. Cada refação custa tempo e recursos.',
+                nextStep: 'laudos_sistema_principal',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'laudos_sistema_principal': {
+                id: 'laudos_sistema_principal',
+                pathKey: 'laudos',
+                type: 'multiple_choice_buttons',
+                question: 'Qual sistema principal sua instituição utiliza para gerenciar o laboratório (LIS) ou as imagens (PACS) e os laudos?',
+                options: [
+                    { value: 'lis_especifico', label: 'LIS específico (especificar qual)' },
+                    { value: 'pacs_especifico', label: 'PACS específico (especificar qual)' },
+                    { value: 'modulo_erp', label: 'Módulo integrado do ERP (Tasy, MV, Pixeon)' },
+                    { value: 'sistema_proprio', label: 'Sistema Próprio' },
+                    { value: 'planilha_excel', label: 'Planilha de Excel' },
+                    { value: 'papel_manual', label: 'Papel/Manual' },
+                    { value: 'nenhum', label: 'Nenhum' },
+                ],
+                nextStep: (responses) => {
+                    const sys = responses.laudos_sistema_principal;
+                    if (['lis_especifico', 'pacs_especifico', 'modulo_erp', 'sistema_proprio'].includes(sys)) return 'laudos_modulos_obstaculos';
+                    if (['planilha_excel', 'papel_manual', 'nenhum'].includes(sys)) return 'laudos_desafio_manual';
+                    return 'laudos_pessoas_tempo_manual'; // Fallback
+                },
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'laudos_modulos_obstaculos': {
+                id: 'laudos_modulos_obstaculos',
+                pathKey: 'laudos',
+                type: 'textarea_input',
+                question: 'No seu sistema [@answer_to_question_laudos_sistema_principal], quais módulos/funcionalidades são (ou deveriam ser) cruciais para a agilidade dos laudos? E quais são os maiores \'pontos de atrito\' ou limitações que ele apresenta na prática para sua equipe?',
+                inputProps: { type: 'textarea', placeholder: 'Ex: Lentidão na busca, falhas na interface, dificuldade de integração', maxLength: 500 },
+                feedback: 'O RapidMapper está diagnosticando a \'saúde\' da sua tecnologia em relação à liberação de resultados.',
+                nextStep: 'laudos_info_inserida_fluxo',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'laudos_info_inserida_fluxo': {
+                id: 'laudos_info_inserida_fluxo',
+                pathKey: 'laudos',
+                type: 'textarea_input',
+                question: 'Onde as informações do exame (pedido, resultado, imagem) são inseridas PELA PRIMEIRA VEZ no sistema [@answer_to_question_laudos_sistema_principal]? Para quais outros módulos ou áreas (internas ou externas) essa informação PRECISA fluir? Como essa integração é feita (automática, manual, exportação/importação)?',
+                inputProps: { type: 'textarea', placeholder: 'Ex: Inserido na Coleta, fluindo para Prontuário Eletrônico via integração automática', maxLength: 500 },
+                nextStep: 'laudos_pessoas_tempo_manual',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'laudos_desafio_manual': {
+                id: 'laudos_desafio_manual',
+                pathKey: 'laudos',
+                type: 'textarea_input',
+                question: 'Descreva o maior desafio de rastreabilidade e segurança que vocês enfrentam por não ter um sistema integrado para laudos/resultados. Como vocês tentam \'contornar\' essa lacuna hoje e qual o risco que isso gera?',
+                inputProps: { type: 'textarea', placeholder: 'Ex: Perda de documentos, dificuldade em encontrar resultados', maxLength: 500 },
+                nextStep: 'laudos_pessoas_tempo_manual',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'laudos_pessoas_tempo_manual': {
+                id: 'laudos_pessoas_tempo_manual',
+                pathKey: 'laudos',
+                type: 'number_select_split',
+                question: 'Quantas pessoas (aproximadamente) da sua equipe (laboratório, radiologia, digitação, médicos laudadores) estão envolvidas diretamente na geração e liberação de laudos? Qual o tempo médio diário que elas dedicam a tarefas manuais para isso?',
+                inputs: [
+                    { id: 'pessoas_envolvidas', label: 'Pessoas Envolvidas:', type: 'number', placeholder: 'Ex: 5', min: 1 },
+                    { id: 'tempo_manual_laudos', label: 'Tempo Diário Manual:', type: 'select', options: [
+                        { value: '<1h', label: '< 1h' }, { value: '1-2h', label: '1-2h' },
+                        { value: '2-4h', label: '2-4h' }, { value: '>4h', label: '> 4h' },
+                    ]}
+                ],
+                feedback: 'Estamos quantificando o custo da ineficiência. Os números vão te surpreender!',
+                nextStep: 'laudos_impacto_financeiro_estimado',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'laudos_impacto_financeiro_estimado': {
+                id: 'laudos_impacto_financeiro_estimado',
+                pathKey: 'laudos',
+                type: 'number_select',
+                question: 'Qual o impacto financeiro estimado dos laudos/resultados atrasados? (Ex: perda de pacientes, insatisfação médica, multas de convênios, ociosidade de equipamentos)?',
+                inputProps: { type: 'number', placeholder: 'Ex: 15000', min: 0 },
+                selectOptions: [
+                    { value: 'pequeno', label: 'Pequeno (Até R$5k)' },
+                    { value: 'moderado', label: 'Moderado (R$5k-R$20k)' },
+                    { value: 'significativo', label: 'Significativo (Acima de R$20k)' },
+                ],
+                feedback: 'Seu RapidMapper está quantificando o custo da ineficiência. Os números vão te surpreender!',
+                nextStep: 'laudos_satisfacao_paciente_medicos',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'laudos_satisfacao_paciente_medicos': {
+                id: 'laudos_satisfacao_paciente_medicos',
+                pathKey: 'laudos',
+                type: 'opinion_scale',
+                question: 'Qual o nível de satisfação dos pacientes e dos médicos solicitantes em relação ao tempo e à forma de entrega dos laudos/resultados?',
+                options: [
+                    { value: 'muito_insatisfeito', label: 'Muito Insatisfeito' },
+                    { value: 'insatisfeito', label: 'Insatisfeito' },
+                    { value: 'neutro', label: 'Neutro' },
+                    { value: 'satisfeito', label: 'Satisfeito' },
+                    { value: 'muito_satisfeito', label: 'Muito Satisfeito' },
+                ],
+                nextStep: 'laudos_impacto_equipe_demora',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'laudos_impacto_equipe_demora': {
+                id: 'laudos_impacto_equipe_demora',
+                pathKey: 'laudos',
+                type: 'multiple_choice_buttons',
+                question: 'Como a demora na liberação de laudos afeta a sua equipe? (Ex: estresse por cobranças, desmotivação, retrabalho?)',
+                options: [
+                    { value: 'estresse_burnout', label: 'Estresse/Burnout' },
+                    { value: 'retrabalho', label: 'Retrabalho' },
+                    { value: 'reclamacoes_externas', label: 'Reclamacoes externas' },
+                    { value: 'desmotivacao', label: 'Desmotivacao' },
+                    { value: 'impacto_qualidade_diagnostico', label: 'Impacto na qualidade do diagnóstico' },
+                    { value: 'outros', label: 'Outros' },
+                ],
+                maxSelections: 2,
+                nextStep: 'laudos_fluxo_ideal',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'laudos_fluxo_ideal': {
+                id: 'laudos_fluxo_ideal',
+                pathKey: 'laudos',
+                type: 'textarea_input',
+                question: 'Se você pudesse redesenhar o fluxo de laudos/resultados do zero, eliminando todas as barreiras, qual seria a principal mudança para atingir a \'liberação ideal\'?',
+                inputProps: { type: 'textarea', placeholder: 'Descreva sua visão para o fluxo perfeito (máx. 500 caracteres)', maxLength: 500 },
+                feedback: 'Sua visão é a bússola para o RapidMapper PRO traçar a rota da excelência e da agilidade.',
+                nextStep: 'ai_mini_report', // Fim do Caminho D, vai para o Mini-Relatório da IA
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+
+            // --- CAMINHO E: EQUIPE RESISTENTE A NOVAS TECNOLOGIAS OU NOVAS ROTINAS ---
+            'equipe_tipo_resistencia': {
+                id: 'equipe_tipo_resistencia',
+                pathKey: 'equipe_resistente',
+                type: 'multiple_choice_buttons',
+                question: 'Qual o principal tipo de resistência que você observa na sua equipe em relação a mudanças? (Selecione até 2)',
+                options: [
+                    { value: 'medo_novo', label: 'Medo do novo/desconhecido' },
+                    { value: 'falta_treinamento', label: 'Falta de treinamento adequado' },
+                    { value: 'descrenca_beneficios', label: 'Descrença nos benefícios da mudança' },
+                    { value: 'sobrecarga_trabalho', label: 'Sobrecarga de trabalho que impede o aprendizado' },
+                    { value: 'falta_comunicacao', label: 'Falta de comunicação clara sobre o \'porquê\'' },
+                    { value: 'preferencia_antigos', label: 'Preferência por métodos antigos/zona de conforto' },
+                    { value: 'inseguranca_capacidade', label: 'Insegurança sobre a própria capacidade' },
+                    { value: 'conflitos_internos', label: 'Conflitos internos/falta de alinhamento' },
+                    { value: 'outros', label: 'Outros' },
+                ],
+                maxSelections: 2,
+                feedback: 'Entendido. A origem da resistência é um ponto crucial para desarmá-la.',
+                nextStep: 'equipe_resistencia_evidente_em',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'equipe_resistencia_evidente_em': {
+                id: 'equipe_resistencia_evidente_em',
+                pathKey: 'equipe_resistente',
+                type: 'multiple_choice_buttons',
+                question: 'Essa resistência é mais evidente em qual tipo de mudança ou tecnologia? (Ex: um novo ERP, um novo protocolo clínico, mudança de escala?)',
+                options: [
+                    { value: 'novo_sistema_gestao', label: 'Novo sistema de gestão (ERP/Prontuário Eletrônico)' },
+                    { value: 'novos_protocolos', label: 'Novos protocolos clínicos/assistenciais' },
+                    { value: 'novas_tecnologias_diagnostico', label: 'Novas tecnologias de diagnóstico/equipamentos' },
+                    { value: 'mudanca_fluxos_trabalho', label: 'Mudança de fluxos de trabalho/processos' },
+                    { value: 'mudanca_estrutura', label: 'Mudança na estrutura hierárquica/de equipes' },
+                    { value: 'outros', label: 'Outros' },
+                ],
+                nextStep: 'equipe_departamentos_resistencia',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'equipe_departamentos_resistencia': {
+                id: 'equipe_departamentos_resistencia',
+                pathKey: 'equipe_resistente',
+                type: 'multiple_choice_buttons',
+                question: 'Qual(is) grupo(s) ou departamento(s) da sua equipe demonstra(m) maior resistência?',
+                options: [
+                    { value: 'corpo_clinico', label: 'Corpo Clínico (médicos)' },
+                    { value: 'enfermagem', label: 'Enfermagem' },
+                    { value: 'adm', label: 'Equipe Administrativa (Recepção, Faturamento)' },
+                    { value: 'ti_suporte', label: 'TI/Suporte' },
+                    { value: 'outros', label: 'Outros' },
+                ],
+                nextStep: 'equipe_processo_introducao_tecnologia',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'equipe_processo_introducao_tecnologia': {
+                id: 'equipe_processo_introducao_tecnologia',
+                pathKey: 'equipe_resistente',
+                type: 'textarea_multi_short',
+                question: 'Descreva o processo \'padrão\' de como uma nova tecnologia ou rotina é introduzida na sua instituição. Pense em 3 a 5 etapas principais, desde a decisão até o uso diário.',
+                inputProps: [
+                    { id: 'etapa1', placeholder: 'Etapa 1: Anúncio da Mudança', maxLength: 100 },
+                    { id: 'etapa2', placeholder: 'Etapa 2: Treinamento', maxLength: 100 },
+                    { id: 'etapa3', placeholder: 'Etapa 3: Início do Uso', maxLength: 100 },
+                    { id: 'etapa4', placeholder: 'Etapa 4: Suporte Pós-Lançamento', maxLength: 100 },
+                ],
+                nextStep: 'equipe_comunicacao_necessidade',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'equipe_comunicacao_necessidade': {
+                id: 'equipe_comunicacao_necessidade',
+                pathKey: 'equipe_resistente',
+                type: 'multiple_choice_buttons',
+                question: 'Como sua instituição comunica a NECESSIDADE da mudança para a equipe? O \'porquê\' é claro para todos?',
+                options: [
+                    { value: 'muito_claro_frequente', label: 'Muito claro e frequente' },
+                    { value: 'razoavelmente_claro', label: 'Razoavelmente claro' },
+                    { value: 'pouco_claro', label: 'Pouco claro' },
+                    { value: 'nao_comunicacao_formal', label: 'Não há comunicação formal sobre o porquê' },
+                ],
+                nextStep: 'equipe_formato_treinamento',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'equipe_formato_treinamento': {
+                id: 'equipe_formato_treinamento',
+                pathKey: 'equipe_resistente',
+                type: 'multiple_choice_buttons',
+                question: 'Qual o formato de treinamento mais utilizado para novas tecnologias/rotinas? É prático e eficaz para a equipe?',
+                options: [
+                    { value: 'presencial_intensivo', label: 'Treinamento presencial intensivo' },
+                    { value: 'online_ead', label: 'Treinamento online (plataforma EAD)' },
+                    { value: 'workshops_praticos', label: 'Workshops práticos' },
+                    { value: 'on_the_job', label: 'Treinamento \'on-the-job\' (aprendizado na prática)' },
+                    { value: 'material_didatico', label: 'Material didático (manual/vídeos)' },
+                    { value: 'nao_treinamento_formal', label: 'Não há treinamento formal' },
+                ],
+                nextStep: 'equipe_suporte_continuo',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'equipe_suporte_continuo': {
+                id: 'equipe_suporte_continuo',
+                pathKey: 'equipe_resistente',
+                type: 'multiple_choice_buttons',
+                question: 'Após a implementação de uma mudança, existe um sistema de suporte contínuo para a equipe tirar dúvidas e resolver problemas? Como ele funciona?',
+                options: [
+                    { value: 'equipe_dedicada', label: 'Sim, equipe de suporte dedicada' },
+                    { value: 'key_users', label: 'Sim, key-users/líderes de área' },
+                    { value: 'nao_se_vira', label: 'Não, a equipe se vira' },
+                    { value: 'central_ajuda_online', label: 'Central de ajuda online/FAQ' },
+                ],
+                nextStep: 'equipe_sistema_principal_resistencia',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'equipe_sistema_principal_resistencia': {
+                id: 'equipe_sistema_principal_resistencia',
+                pathKey: 'equipe_resistente',
+                type: 'multiple_choice_buttons',
+                question: 'Qual o principal sistema (ERP ou outro) que sua equipe utiliza para realizar as tarefas impactadas pelas mudanças que geram resistência?',
+                options: [
+                    { value: 'tasy', label: 'Tasy' }, { value: 'mv', label: 'MV' }, { value: 'pixeon', label: 'Pixeon' },
+                    { value: 'outro_erp', label: 'Outro ERP de Saúde' }, { value: 'sistema_proprio', label: 'Sistema Próprio' },
+                    { value: 'planilha_excel', label: 'Planilha de Excel' }, { value: 'papel_manual', label: 'Papel/Manual' }, { value: 'nenhum', label: 'Nenhum' },
+                ],
+                nextStep: (responses) => {
+                    const sys = responses.equipe_sistema_principal_resistencia;
+                    if (['tasy', 'mv', 'pixeon', 'outro_erp', 'sistema_proprio'].includes(sys)) return 'equipe_modulos_dificeis';
+                    if (['planilha_excel', 'papel_manual', 'nenhum'].includes(sys)) return 'equipe_desafio_padronizacao_manual';
+                    return 'equipe_cultura_inovacao'; // Fallback
+                },
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'equipe_modulos_dificeis': {
+                id: 'equipe_modulos_dificeis',
+                pathKey: 'equipe_resistente',
+                type: 'textarea_input',
+                question: 'No seu sistema [@answer_to_question_equipe_sistema_principal_resistencia], quais módulos/funcionalidades são os mais \'temidos\' ou difíceis de usar pela equipe? Qual a principal crítica que a equipe faz à interface ou usabilidade dele?',
+                inputProps: { type: 'textarea', placeholder: 'Ex: Lentidão, interface confusa, muitos cliques', maxLength: 500 },
+                feedback: 'O RapidMapper está diagnosticando a \'interação humana-tecnologia\' em seu ambiente.',
+                nextStep: 'equipe_informacao_atualizacoes',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'equipe_informacao_atualizacoes': {
+                id: 'equipe_informacao_atualizacoes',
+                pathKey: 'equipe_resistente',
+                type: 'multiple_choice_buttons',
+                question: 'Quando há atualizações ou novas funcionalidades nesse sistema, como a equipe é informada e preparada para essas mudanças?',
+                options: [
+                    { value: 'email_comunicado', label: 'E-mail/Comunicado Interno' },
+                    { value: 'reuniao_apresentacao', label: 'Reunião/Apresentação' },
+                    { value: 'pop_up_sistema', label: 'Pop-up no próprio sistema' },
+                    { value: 'treinamento_obrigatorio', label: 'Treinamento obrigatório' },
+                    { value: 'nao_informado', label: 'Não são informados formalmente' },
+                ],
+                nextStep: 'equipe_cultura_inovacao',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'equipe_desafio_padronizacao_manual': {
+                id: 'equipe_desafio_padronizacao_manual',
+                pathKey: 'equipe_resistente',
+                type: 'textarea_input',
+                question: 'Descreva o maior desafio de padronização e consistência que vocês enfrentam ao depender de processos manuais ou sistemas não integrados. Como isso afeta a aceitação de novas rotinas?',
+                inputProps: { type: 'textarea', placeholder: 'Ex: Erros na transcrição, dificuldade em encontrar documentos', maxLength: 500 },
+                nextStep: 'equipe_cultura_inovacao',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'equipe_cultura_inovacao': {
+                id: 'equipe_cultura_inovacao',
+                pathKey: 'equipe_resistente',
+                type: 'opinion_scale',
+                question: 'Como você descreveria a cultura da sua instituição em relação à inovação e à adoção de novas tecnologias?',
+                options: [
+                    { value: 'muito_aberta', label: 'Muito Aberta' },
+                    { value: 'cautelosa_aberta', label: 'Cautelosa, mas aberta ao novo' },
+                    { value: 'resistente_mudancas', label: 'Resistente a mudanças' },
+                    { value: 'apego_antigo', label: 'Forte apego ao \'sempre fizemos assim\'' },
+                ],
+                feedback: 'A cultura é um fator poderoso. Estamos entendendo como ela molda a adoção.',
+                nextStep: 'equipe_impacto_financeiro_baixa_adocao',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'equipe_impacto_financeiro_baixa_adocao': {
+                id: 'equipe_impacto_financeiro_baixa_adocao',
+                pathKey: 'equipe_resistente',
+                type: 'number_select',
+                question: 'Qual o impacto financeiro estimado da baixa adoção de tecnologias ou da resistência a novas rotinas? (Ex: retrabalho, lentidão, erros, perda de oportunidades)?',
+                inputProps: { type: 'number', placeholder: 'Ex: 10000', min: 0 },
+                selectOptions: [
+                    { value: 'pequeno', label: 'Pequeno (Até R$5k)' },
+                    { value: 'moderado', label: 'Moderado (R$5k-R$20k)' },
+                    { value: 'significativo', label: 'Significativo (Acima de R$20k)' },
+                ],
+                feedback: 'Seu RapidMapper está quantificando o custo da ineficiência da não-adocão. Os números vão te surpreender!',
+                nextStep: 'equipe_impacto_visivel_resistencia',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'equipe_impacto_visivel_resistencia': {
+                id: 'equipe_impacto_visivel_resistencia',
+                pathKey: 'equipe_resistente',
+                type: 'multiple_choice_buttons',
+                question: 'Qual o impacto mais visível da resistência na sua operação diária? (Marque até 2)',
+                options: [
+                    { value: 'baixa_utilizacao', label: 'Baixa utilização de sistemas/ferramentas' },
+                    { value: 'aumento_erros_retrabalho', label: 'Aumento de erros/retrabalho' },
+                    { value: 'queda_produtividade', label: 'Queda na produtividade' },
+                    { value: 'atraso_implementacao', label: 'Atraso na implementação de melhorias' },
+                    { value: 'desmotivacao_estresse', label: 'Desmotivação/Estresse da equipe' },
+                    { value: 'impacto_qualidade_servico', label: 'Impacto na qualidade do serviço/paciente' },
+                    { value: 'outros', label: 'Outros' },
+                ],
+                maxSelections: 2,
+                nextStep: 'equipe_impacto_moral_equipe',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'equipe_impacto_moral_equipe': {
+                id: 'equipe_impacto_moral_equipe',
+                pathKey: 'equipe_resistente',
+                type: 'opinion_scale',
+                question: 'Qual o impacto na moral da equipe quando uma nova tecnologia ou processo não é bem aceito e a implementação falha?',
+                options: [
+                    { value: 'sem_impacto', label: 'Sem impacto' },
+                    { value: 'pequeno_impacto', label: 'Pequeno impacto' },
+                    { value: 'impacto_moderado', label: 'Impacto moderado' },
+                    { value: 'grande_impacto', label: 'Grande impacto' },
+                    { value: 'desmotivacao_generalizada', label: 'Desmotivação generalizada' },
+                ],
+                nextStep: 'equipe_garantir_adocao_total',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'equipe_garantir_adocao_total': {
+                id: 'equipe_garantir_adocao_total',
+                pathKey: 'equipe_resistente',
+                type: 'textarea_input',
+                question: 'Se você pudesse \'hackear\' a resistência da sua equipe e garantir a adoção total de uma nova tecnologia/rotina, qual seria o maior benefício para a sua sua instituição?',
+                inputProps: { type: 'textarea', placeholder: 'Descreva o maior benefício (máx. 500 caracteres)', maxLength: 500 },
+                feedback: 'Sua visão é a bússola para o HealthFlow AI traçar a rota da excelência e da aceitação.',
+                nextStep: 'ai_mini_report', // Fim do Caminho E, vai para o Mini-Relatório da IA
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+
+            // --- CAMINHO F: GESTÃO DE ESTOQUE & INSUMOS INEFICIENTE ---
+            'estoque_fluxo_insumo_as_is': {
+                id: 'estoque_fluxo_insumo_as_is',
+                pathKey: 'estoque',
+                type: 'textarea_multi_short',
+                question: 'Vamos rastrear a jornada de um insumo crítico (ex: gaze, seringa, contraste) na sua instituição. Descreva em 3 a 5 etapas principais, desde a requisição de compra até o uso final no paciente.',
+                inputProps: [
+                    { id: 'etapa1', placeholder: 'Etapa 1: Requisição de Compra', maxLength: 100 },
+                    { id: 'etapa2', placeholder: 'Etapa 2: Recebimento/Armazenamento', maxLength: 100 },
+                    { id: 'etapa3', placeholder: 'Etapa 3: Dispensação/Uso', maxLength: 100 },
+                    { id: 'etapa4', placeholder: 'Etapa 4: Contagem/Inventário', maxLength: 100 },
+                    { id: 'etapa5', placeholder: 'Etapa 5: Descarte/Reposição', maxLength: 100 },
+                ],
+                feedback: 'Perfeito! Estamos traçando o ciclo de vida do seu insumo. Agora, vamos identificar onde ele se perde ou acumula.',
+                nextStep: 'estoque_info_imprecisa',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'estoque_info_imprecisa': {
+                id: 'estoque_info_imprecisa',
+                pathKey: 'estoque',
+                type: 'multiple_choice_buttons',
+                question: 'Em qual (ou quais) dessas etapas a informação sobre o insumo costuma ser mais imprecisa ou atrasada?',
+                options: [ // Opções baseadas nas etapas acima
+                    { value: 'requisicao_compra', label: 'Requisição de Compra' },
+                    { value: 'recebimento_armazenamento', label: 'Recebimento/Armazenamento' },
+                    { value: 'dispensacao_uso', label: 'Dispensação/Uso' },
+                    { value: 'contagem_inventario', label: 'Contagem/Inventário' },
+                    { value: 'descarte_reposicao', label: 'Descarte/Reposição' },
+                ],
+                nextStep: 'estoque_processo_falta_excesso',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'estoque_processo_falta_excesso': {
+                id: 'estoque_processo_falta_excesso',
+                pathKey: 'estoque',
+                type: 'textarea_input',
+                question: 'Quando sua equipe percebe que um insumo crítico está faltando ou em excesso? Qual é o processo para corrigir essa situação de URGÊNCIA?',
+                inputProps: { type: 'textarea', placeholder: 'Descreva o fluxo de emergência/ajuste de estoque (máx. 500 caracteres)', maxLength: 500 },
+                feedback: 'Compreender as contingências é vital. Isso nos mostra a resiliência (ou a falta dela) do seu processo de estoque.',
+                nextStep: 'estoque_valor_medio_mensal',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'estoque_valor_medio_mensal': {
+                id: 'estoque_valor_medio_mensal',
+                pathKey: 'estoque',
+                type: 'opinion_scale',
+                question: 'Qual o valor médio mensal do estoque de insumos (incluindo medicamentos e materiais) da sua instituição?',
+                options: [
+                    { value: 'ate_100k', label: 'Até R$100 mil' },
+                    { value: '100k_500k', label: 'R$100 mil - R$500 mil' },
+                    { value: '500k_1m', label: 'R$500 mil - R$1 milhão' },
+                    { value: 'acima_1m', label: 'Acima de R$1 milhão' },
+                ],
+                nextStep: 'estoque_frequencia_problemas',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'estoque_frequencia_problemas': {
+                id: 'estoque_frequencia_problemas',
+                pathKey: 'estoque',
+                type: 'opinion_scale',
+                question: 'Com que frequência sua instituição enfrenta problemas de \'ruptura de estoque\' (falta de insumos essenciais) ou \'excesso de estoque\' (insumos parados/vencendo)?',
+                options: [
+                    { value: 'nunca', label: 'Nunca' }, { value: 'raramente', label: 'Raramente (1-2x/mês)' },
+                    { value: 'algumas_vezes_semana', label: 'Algumas vezes por semana' }, { value: 'diariamente', label: 'Diariamente' },
+                ],
+                nextStep: 'estoque_desafios_principais',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'estoque_desafios_principais': {
+                id: 'estoque_desafios_principais',
+                pathKey: 'estoque',
+                type: 'multiple_choice_buttons',
+                question: 'Quais os 3 principais desafios na gestão do seu estoque? (Marque até 3)',
+                options: [
+                    { value: 'falta_controle_validade', label: 'Falta de controle de validade/perdas' },
+                    { value: 'dificuldade_prever_demanda', label: 'Dificuldade de prever demanda de insumos' },
+                    { value: 'atraso_reposicao', label: 'Atraso na reposição/recebimento de pedidos' },
+                    { value: 'divergencia_estoque', label: 'Divergência entre estoque físico e sistêmico' },
+                    { value: 'custo_elevado_armazenamento', label: 'Custo elevado de armazenamento/logística' },
+                    { value: 'insumos_obsoletos', label: 'Insumos obsoletos/em desuso' },
+                    { value: 'erros_registro_baixa', label: 'Erros de registro/baixa' },
+                    { value: 'outros', label: 'Outros' },
+                ],
+                maxSelections: 3,
+                nextStep: 'estoque_volume_descartado',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'estoque_volume_descartado': {
+                id: 'estoque_volume_descartado',
+                pathKey: 'estoque',
+                type: 'opinion_scale',
+                question: 'Qual o volume médio de insumos que vocês descartam por mês devido a vencimento, dano ou desuso?',
+                options: [
+                    { value: 'nenhum', label: 'Praticamente nenhum' },
+                    { value: 'ate_1_porcento', label: 'Até 1% do valor do estoque' },
+                    { value: '1_3_porcento', label: '1-3%' },
+                    { value: '3_5_porcento', label: '3-5%' },
+                    { value: 'mais_5_porcento', label: 'Mais de 5%' },
+                ],
+                feedback: 'Estamos quantificando as perdas diretas. Cada descarte é um custo que pode ser evitado.',
+                nextStep: 'estoque_sistema_principal',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'estoque_sistema_principal': {
+                id: 'estoque_sistema_principal',
+                pathKey: 'estoque',
+                type: 'multiple_choice_buttons',
+                question: 'Qual sistema principal sua instituição utiliza para gerenciar o estoque de insumos e medicamentos?',
+                options: [
+                    { value: 'modulo_erp', label: 'Módulo de Estoque do ERP (Tasy, MV, Pixeon)' },
+                    { value: 'sistema_proprio', label: 'Sistema Próprio de Estoque' },
+                    { value: 'planilha_excel', label: 'Planilha de Excel' },
+                    { value: 'sistema_terceiros', label: 'Sistema de Terceiros (especificar qual)' },
+                    { value: 'papel_manual', label: 'Papel/Manual' },
+                    { value: 'nenhum', label: 'Nenhum' },
+                ],
+                nextStep: (responses) => {
+                    const sys = responses.estoque_sistema_principal;
+                    if (['modulo_erp', 'sistema_proprio', 'sistema_terceiros'].includes(sys)) return 'estoque_modulos_obstaculos';
+                    if (['planilha_excel', 'papel_manual', 'nenhum'].includes(sys)) return 'estoque_desafio_manual';
+                    return 'estoque_pessoas_tempo_manual'; // Fallback
+                },
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'estoque_modulos_obstaculos': {
+                id: 'estoque_modulos_obstaculos',
+                pathKey: 'estoque',
+                type: 'textarea_input',
+                question: 'No seu sistema [@answer_to_question_estoque_sistema_principal], quais módulos/funcionalidades são (ou deveriam ser) cruciais para a agilidade do estoque? E quais são os maiores \'obstáculos\' ou limitações que ele apresenta na prática para sua equipe?',
+                inputProps: { type: 'textarea', placeholder: 'Ex: Falta de integração com compras, inventário manual, relatórios complexos', maxLength: 500 },
+                feedback: 'O RapidMapper está diagnosticando a \'saúde\' da sua tecnologia em relação à gestão de estoque.',
+                nextStep: 'estoque_info_inserida_fluxo',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'estoque_info_inserida_fluxo': {
+                id: 'estoque_info_inserida_fluxo',
+                pathKey: 'estoque',
+                type: 'textarea_input',
+                question: 'Onde as informações do insumo (entrada, saída, lote, validade) são inseridas PELA PRIMEIRA VEZ no sistema [@answer_to_question_estoque_sistema_principal]? Para quais outros módulos (ex: faturamento, prontuário) essa informação PRECISA fluir? Como essa integração é feita (automática, manual, exportação/importação)?',
+                inputProps: { type: 'textarea', placeholder: 'Ex: Inserido no Recebimento, fluindo para Faturamento via integração automática', maxLength: 500 },
+                nextStep: 'estoque_pessoas_tempo_manual',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'estoque_desafio_manual': {
+                id: 'estoque_desafio_manual',
+                pathKey: 'estoque',
+                type: 'textarea_input',
+                question: 'Descreva o maior desafio de controle e rastreabilidade que vocês enfrentam por depender de processos manuais ou sistemas não integrados. Como isso afeta a eficiência e os erros neste processo?',
+                inputProps: { type: 'textarea', placeholder: 'Ex: Perda de documentos, dificuldade em encontrar insumos', maxLength: 500 },
+                nextStep: 'estoque_pessoas_tempo_manual',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'estoque_pessoas_tempo_manual': {
+                id: 'estoque_pessoas_tempo_manual',
+                pathKey: 'estoque',
+                type: 'number_select_split',
+                question: 'Quantas pessoas (aproximadamente) da sua equipe estão envolvidas diretamente na gestão e movimentação de estoque? Qual o tempo médio diário que elas dedicam a tarefas manuais para isso?',
+                inputs: [
+                    { id: 'pessoas_envolvidas', label: 'Pessoas Envolvidas:', type: 'number', placeholder: 'Ex: 5', min: 1 },
+                    { id: 'tempo_manual_estoque', label: 'Tempo Diário Manual:', type: 'select', options: [
+                        { value: '<1h', label: '< 1h' }, { value: '1-2h', label: '1-2h' },
+                        { value: '2-4h', label: '2-4h' }, { value: '>4h', label: '> 4h' },
+                    ]}
+                ],
+                feedback: 'Estamos quantificando o custo da ineficiência. Os números vão te surpreender!',
+                nextStep: 'estoque_impacto_financeiro_estimado',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'estoque_impacto_financeiro_estimado': {
+                id: 'estoque_impacto_financeiro_estimado',
+                pathKey: 'estoque',
+                type: 'number_select',
+                question: 'Qual o impacto financeiro estimado de uma gestão de estoque ineficiente? (Ex: capital parado, perdas por vencimento, compras de emergência, ociosidade de leito/sala cirúrgica por falta de insumo)?',
+                inputProps: { type: 'number', placeholder: 'Ex: 15000', min: 0 },
+                selectOptions: [
+                    { value: 'pequeno', label: 'Pequeno (Até R$5k)' },
+                    { value: 'moderado', label: 'Moderado (R$5k-R$20k)' },
+                    { value: 'significativo', label: 'Significativo (Acima de R$20k)' },
+                ],
+                feedback: 'Seu RapidMapper está quantificando o custo da ineficiência. Os números vão te surpreender!',
+                nextStep: 'estoque_impacto_visivel_operacao',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'estoque_impacto_visivel_operacao': {
+                id: 'estoque_impacto_visivel_operacao',
+                pathKey: 'estoque',
+                type: 'multiple_choice_buttons',
+                question: 'Qual o impacto mais visível de problemas de estoque na sua operação diária? (Marque até 2)',
+                options: [
+                    { value: 'atraso_procedimentos', label: 'Atraso em procedimentos/atendimentos' },
+                    { value: 'perda_receita_insumo', label: 'Perda de receita por falta de insumo' },
+                    { value: 'estresse_desmotivacao_equipe', label: 'Estresse/Desmotivação da equipe' },
+                    { value: 'retrabalho_recompra', label: 'Retrabalho na busca/recompra' },
+                    { value: 'aumento_custos_emergencia', label: 'Aumento de custos com fretes de emergência' },
+                    { value: 'impacto_qualidade_seguranca', label: 'Impacto na qualidade do serviço/segurança do paciente' },
+                    { value: 'outros', label: 'Outros' },
+                ],
+                maxSelections: 2,
+                nextStep: 'estoque_satisfacao_equipes',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'estoque_satisfacao_equipes': {
+                id: 'estoque_satisfacao_equipes',
+                pathKey: 'estoque',
+                type: 'opinion_scale',
+                question: 'Qual o nível de satisfação das equipes assistenciais (médicos, enfermagem) em relação à disponibilidade e acesso aos insumos necessários?',
+                options: [
+                    { value: 'muito_insatisfeito', label: 'Muito Insatisfeito' },
+                    { value: 'insatisfeito', label: 'Insatisfeito' },
+                    { value: 'neutro', label: 'Neutro' },
+                    { value: 'satisfeito', label: 'Satisfeito' },
+                    { value: 'muito_satisfeito', label: 'Muito Satisfeito' },
+                ],
+                nextStep: 'estoque_mudanca_ideal',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'estoque_mudanca_ideal': {
+                id: 'estoque_mudanca_ideal',
+                pathKey: 'estoque',
+                type: 'textarea_input',
+                question: 'Se você pudesse redesenhar a gestão de estoque do zero, eliminando todas as barreiras, qual seria a principal mudança para atingir o \'estoque ideal\' (custo certo, insumo certo, hora certa)?',
+                inputProps: { type: 'textarea', placeholder: 'Descreva sua visão para o estoque perfeito (máx. 500 caracteres)', maxLength: 500 },
+                feedback: 'Sua visão é a bússola para o RapidMapper PRO traçar a rota da excelência e do controle total.',
+                nextStep: 'ai_mini_report', // Fim do Caminho F, vai para o Mini-Relatório da IA
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+
+            // --- CAMINHO G: OUTRO GARGALO ---
+            'outro_gargalo_detalhe': {
+                id: 'outro_gargalo_detalhe',
+                pathKey: 'outro_gargalo',
+                type: 'text_input',
+                question: 'Você mencionou "Outro" desafio. Para que possamos mergulhar fundo, por favor, descreva em detalhes esse gargalo. Qual é o problema específico que você está enfrentando?',
+                inputProps: { type: 'textarea', placeholder: 'Descreva aqui seu desafio específico (máx. 500 caracteres)', maxLength: 500 },
+                feedback: 'Perfeito! Agora temos o foco. Vamos destrinchar as etapas envolvidas.',
+                nextStep: 'outro_gargalo_envolvidos',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'outro_gargalo_envolvidos': {
+                id: 'outro_gargalo_envolvidos',
+                pathKey: 'outro_gargalo',
+                type: 'text_input',
+                question: 'Quem são os principais envolvidos nesse processo ou área que está com o gargalo? (Ex: equipe de enfermagem, corpo administrativo, setor de compras, etc.)',
+                inputProps: { type: 'text', placeholder: 'Ex: Equipe de RH, Setor de Manutenção', maxLength: 150 },
+                nextStep: 'outro_gargalo_sintoma',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'outro_gargalo_sintoma': {
+                id: 'outro_gargalo_sintoma',
+                pathKey: 'outro_gargalo',
+                type: 'text_input',
+                question: 'Quando você percebe que este problema está ocorrendo? Há algum \'gatilho\' ou sintoma específico?',
+                inputProps: { type: 'text', placeholder: 'Ex: No final do mês, após relatórios específicos', maxLength: 250 },
+                feedback: 'Entendido. A detecção precoce é crucial. Agora, vamos entender o \'como\' do processo.',
+                nextStep: 'outro_gargalo_fluxo_etapas',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'outro_gargalo_fluxo_etapas': {
+                id: 'outro_gargalo_fluxo_etapas',
+                pathKey: 'outro_gargalo',
+                type: 'textarea_input', // Corrigido para textarea_input, pois é um único campo de texto livre
+                question: 'Descreva o fluxo COMPLETO desse processo que você identificou como gargalo, do início ao fim. Tente pensar em 3 a 5 etapas principais. Onde as informações ou ações costumam \'travar\'?',
+                inputProps: { type: 'textarea', placeholder: 'Etapa 1: ...\nEtapa 2: ...\nEtapa 3: ...', rows: 5, maxLength: 500 },
+                feedback: 'Estamos mapeando seu fluxo de valor. Agora, vamos investigar as ferramentas.',
+                nextStep: 'outro_gargalo_comunicacao_erros',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'outro_gargalo_comunicacao_erros': {
+                id: 'outro_gargalo_comunicacao_erros',
+                pathKey: 'outro_gargalo',
+                type: 'multiple_choice_buttons',
+                question: 'Em qual (ou quais) dessas etapas a comunicação ou a transferência de informações entre as equipes ou sistemas é mais difícil ou propensa a erros?',
+                options: [ // Essas opções seriam dinamicamente geradas com base nas etapas de `outro_gargalo_fluxo_etapas` no sistema real
+                    { value: 'etapa1', label: 'Etapa 1 (Requisição)' },
+                    { value: 'etapa2', label: 'Etapa 2 (Processamento)' },
+                    { value: 'etapa3', label: 'Etapa 3 (Aprovação)' },
+                    { value: 'entre_equipes', label: 'Entre equipes diferentes' },
+                    { value: 'transferencia_sistema', label: 'Transferência entre sistemas' },
+                ],
+                nextStep: 'outro_gargalo_pessoas_tempo',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'outro_gargalo_pessoas_tempo': {
+                id: 'outro_gargalo_pessoas_tempo',
+                pathKey: 'outro_gargalo',
+                type: 'number_select_split', // Tipo customizado para número + escala
+                question: 'Quantas pessoas (aproximadamente) da sua equipe estão envolvidas diretamente na execução desse processo? Qual o tempo médio diário que elas dedicam a tarefas manuais ou retrabalho relacionadas a ele?',
+                inputs: [
+                    { id: 'pessoas_envolvidas', label: 'Pessoas Envolvidas:', type: 'number', placeholder: 'Ex: 5', min: 1 },
+                    { id: 'tempo_manual', label: 'Tempo Diário Manual/Retrabalho:', type: 'select', options: [
+                        { value: '<1h', label: '< 1h' }, { value: '1-2h', label: '1-2h' },
+                        { value: '2-4h', label: '2-4h' }, { value: '>4h', label: '> 4h' },
+                    ]}
+                ],
+                feedback: 'O tempo é dinheiro. Estamos calculando o impacto oculto.',
+                nextStep: 'outro_gargalo_sistema_principal',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'outro_gargalo_sistema_principal': {
+                id: 'outro_gargalo_sistema_principal',
+                pathKey: 'outro_gargalo',
+                type: 'multiple_choice_buttons',
+                question: 'Qual sistema principal sua instituição utiliza para gerenciar ou registrar as informações relacionadas a esse processo?',
+                options: [
+                    { value: 'tasy', label: 'Tasy' }, { value: 'mv', label: 'MV' }, { value: 'pixeon', label: 'Pixeon' },
+                    { value: 'outro_erp', label: 'Outro ERP de Saúde' }, { value: 'sistema_especifico', label: 'Sistema Específico (Ex: RH, Financeiro)' },
+                    { value: 'planilha', label: 'Planilha de Excel' }, { value: 'papel', label: 'Papel/Manual' }, { value: 'nenhum', label: 'Nenhum' },
+                ],
+                nextStep: (responses) => {
+                    const sys = responses.outro_gargalo_sistema_principal;
+                    if (['tasy', 'mv', 'pixeon', 'outro_erp', 'sistema_especifico'].includes(sys)) return 'outro_gargalo_modulos_obstaculos';
+                    if (['planilha', 'papel', 'nenhum'].includes(sys)) return 'outro_gargalo_desafio_manual';
+                    return 'analise_sistemica_transicao'; // Fallback para a próxima fase se nenhuma condição for atendida
+                },
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'outro_gargalo_modulos_obstaculos': {
+                id: 'outro_gargalo_modulos_obstaculos',
+                pathKey: 'outro_gargalo',
+                type: 'textarea_input',
+                question: 'No seu sistema [@answer_to_question_sistema_principal], quais módulos/funcionalidades são (ou deveriam ser) cruciais para a execução desse processo? E quais são os maiores \'obstáculos\' ou limitações que ele apresenta na prática para sua equipe?',
+                inputProps: { type: 'textarea', placeholder: 'Ex: Falta de campos, dificuldade de integração, relatórios insuficientes', maxLength: 500 },
+                feedback: 'O RapidMapper está diagnosticando a interface entre seu processo e sua tecnologia.',
+                nextStep: 'outro_gargalo_fluxo_informacao_sistema',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'outro_gargalo_fluxo_informacao_sistema': {
+                id: 'outro_gargalo_fluxo_informacao_sistema',
+                pathKey: 'outro_gargalo',
+                type: 'textarea_input',
+                question: 'Onde as informações essenciais para esse processo são inseridas PELA PRIMEIRA VEZ no sistema [@answer_to_question_sistema_principal]? Para quais outros módulos ou áreas (internas ou externas) essa informação PRECISA fluir? Como essa integração é feita (automática, manual, exportação/importação)?',
+                inputProps: { type: 'textarea', placeholder: 'Ex: Inserido na Recepção, fluindo para Faturamento via integração automática', maxLength: 500 },
+                nextStep: 'outro_gargalo_impacto_financeiro',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'outro_gargalo_desafio_manual': {
+                id: 'outro_gargalo_desafio_manual',
+                pathKey: 'outro_gargalo',
+                type: 'textarea_input',
+                question: 'Descreva o maior desafio de padronização, controle e rastreabilidade que vocês enfrentam por depender de processos manuais ou sistemas não integrados. Como isso afeta a eficiência e os erros neste processo?',
+                inputProps: { type: 'textarea', placeholder: 'Ex: Erros na transcrição, dificuldade em encontrar documentos', maxLength: 500 },
+                nextStep: 'outro_gargalo_impacto_financeiro',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'outro_gargalo_impacto_financeiro': {
+                id: 'outro_gargalo_impacto_financeiro',
+                pathKey: 'outro_gargalo',
+                type: 'number_select',
+                question: 'Qual o impacto financeiro estimado que esse gargalo causa à sua instituição mensalmente ou anualmente?',
+                inputProps: { type: 'number', placeholder: 'Ex: 25000', min: 0 },
+                selectOptions: [
+                    { value: 'pequeno', label: 'Pequeno (Até R$5k)' },
+                    { value: 'moderado', label: 'Moderado (R$5k-R$20k)' },
+                    { value: 'significativo', label: 'Significativo (Acima de R$20k)' },
+                ],
+                feedback: 'Seu RapidMapper está quantificando o custo da ineficiência. Os números vão te surpreender!',
+                nextStep: 'outro_gargalo_causas',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'outro_gargalo_causas': {
+                id: 'outro_gargalo_causas',
+                pathKey: 'outro_gargalo',
+                type: 'multiple_choice_buttons',
+                question: 'Quais são as principais CAUSAS que você atribui a esse gargalo?',
+                options: [
+                    { value: 'processo_mal_definido', label: 'Processo mal definido/documentado' },
+                    { value: 'falta_comunicacao', label: 'Falta de comunicação entre equipes' },
+                    { value: 'tecnologia_inadequada', label: 'Tecnologia inadequada/antiga' },
+                    { value: 'falta_treinamento', label: 'Falta de treinamento/capacitação' },
+                    { value: 'resistencia_equipe', label: 'Resistência da equipe à mudança' },
+                    { value: 'falta_lideranca', label: 'Falta de liderança/gerenciamento' },
+                    { value: 'volume_excesso', label: 'Volume excessivo de demanda' },
+                    { value: 'outros_causas', label: 'Outros' },
+                ],
+                maxSelections: 3,
+                nextStep: 'outro_gargalo_satisfacao_qualidade',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'outro_gargalo_satisfacao_qualidade': {
+                id: 'outro_gargalo_satisfacao_qualidade',
+                pathKey: 'outro_gargalo',
+                type: 'opinion_scale',
+                question: 'Como a existência desse gargalo afeta a satisfação do paciente ou a qualidade do serviço prestado?',
+                options: [
+                    { value: 'muito_negativo', label: 'Muito Negativo' }, { value: 'negativo', label: 'Negativo' },
+                    { value: 'neutro', label: 'Neutro' }, { value: 'positivo', label: 'Positivo' },
+                ],
+                nextStep: 'outro_gargalo_impacto_equipe',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'outro_gargalo_impacto_equipe': {
+                id: 'outro_gargalo_impacto_equipe',
+                pathKey: 'outro_gargalo',
+                type: 'multiple_choice_buttons',
+                question: 'Qual o impacto desse gargalo na sua equipe?',
+                options: [
+                    { value: 'estresse_burnout', label: 'Estresse/Burnout' }, { value: 'retrabalho', label: 'Retrabalho' },
+                    { value: 'desmotivacao', label: 'Desmotivacao' }, { value: 'conflitos', label: 'Conflitos Internos' },
+                    { value: 'queda_produtividade', label: 'Queda de Produtividade' }, { value: 'outros_impactos', label: 'Outro' },
+                ],
+                maxSelections: 2,
+                nextStep: 'outro_gargalo_processo_ideal',
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+            'outro_gargalo_processo_ideal': {
+                id: 'outro_gargalo_processo_ideal',
+                pathKey: 'outro_gargalo',
+                type: 'textarea_input',
+                question: 'Se você pudesse redesenhar esse processo do zero, eliminando todas as barreiras e com a tecnologia ideal, como ele funcionaria para ser \'perfeito\'?',
+                inputProps: { type: 'textarea', placeholder: 'Descreva sua visão para o processo perfeito (máx. 500 caracteres)', maxLength: 500 },
+                feedback: 'Sua visão é a bússola para o RapidMapper PRO traçar a rota da excelência e da otimização total.',
+                nextStep: 'ai_mini_report', // Fim do Caminho G, vai para o Mini-Relatório da IA
+                pathIndicator: { step: 2, total: 4, label: 'Fase 2: Diagnóstico Aprofundado' }
+            },
+
+            // --- FASE 3: ANÁLISE SISTÊMICA E VISÃO AMPLIADA ---
+            'ai_mini_report': {
+                id: 'ai_mini_report',
+                type: 'ai_mini_report',
+                title: 'HealthFlow AI: Primeiros Insights do Seu Diagnóstico!',
+                message: (responses) => {
+                    const gargaloPrincipal = responses.gargalo_critico ?
+                        questionsData.gargalo_critico.options.find(opt => opt.value === responses.gargalo_critico)?.label : 'seu desafio';
+                    return `Com base nas suas respostas sobre **${gargaloPrincipal}**, nossa IA está processando os dados para revelar os pontos críticos e o impacto financeiro.`;
+                },
+                cta: 'Continuar para Análise Sistêmica',
+                nextStep: 'analise_sistemica_transicao',
+                pathIndicator: { step: 3, total: 4, label: 'Fase 3: Insights da IA' }
+            },
+            'analise_sistemica_transicao': {
+                id: 'analise_sistemica_transicao',
+                type: 'statement',
+                title: 'Fase 3: Visão Sistêmica e Futuro',
+                message: 'Agora que mergulhamos no seu desafio principal, vamos ter uma visão mais ampla da sua instituição. Você está indo muito bem!',
+                cta: 'Continuar Diagnóstico',
+                nextStep: 'sistemas_criticos',
+                pathIndicator: { step: 3, total: 4, label: 'Fase 3: Análise Sistêmica' }
+            },
+            'sistemas_criticos': {
+                id: 'sistemas_criticos',
+                type: 'textarea_multi_short', // Tipo customizado para 3 inputs curtos
+                question: 'Pensando em todos os seus processos, quais são as três tecnologias ou sistemas MAIS CRÍTICAS para a sua operação diária? (Ex: Prontuário Eletrônico, Sistema de Imagem, Faturamento)',
+                inputProps: [
+                    { id: 'sistema1', placeholder: 'Sistema 1 (Ex: Tasy, MV)' },
+                    { id: 'sistema2', placeholder: 'Sistema 2' },
+                    { id: 'sistema3', placeholder: 'Sistema 3' },
+                ],
+                feedback: 'Interessante. Compreender o ecossistema tecnológico é vital.',
+                nextStep: 'nivel_integracao',
+                pathIndicator: { step: 3, total: 4, label: 'Fase 3: Análise Sistêmica' }
+            },
+            'nivel_integracao': {
+                id: 'nivel_integracao',
+                type: 'multiple_choice_buttons',
+                question: 'Qual o nível de integração entre esses sistemas que você mencionou? Eles \'conversam\' entre si automaticamente, ou há muita troca de informação manual/planilhas?',
+                options: [
+                    { value: 'totalmente_integrados', label: 'Totalmente integrados' },
+                    { value: 'parcialmente_integrados', label: 'Parcialmente integrados (alguns dados)' },
+                    { value: 'pouca_integracao', label: 'Pouca integração, muita replicação manual' },
+                    { value: 'nao_integrados', label: 'Não são integrados' },
+                ],
+                nextStep: 'processo_tomada_decisao',
+                pathIndicator: { step: 3, total: 4, label: 'Fase 3: Análise Sistêmica' }
+            },
+            'processo_tomada_decisao': {
+                id: 'processo_tomada_decisao',
+                type: 'textarea_input',
+                question: 'Como é o processo de \'tomada de decisão\' para investir em novas tecnologias ou otimizações? Quem são os principais envolvidos e qual o tempo médio para uma decisão?',
+                inputProps: { type: 'textarea', placeholder: 'Descreva aqui (máx. 500 caracteres)', maxLength: 500 },
+                nextStep: 'visao_alta_gestao',
+                pathIndicator: { step: 3, total: 4, label: 'Fase 3: Análise Sistêmica' }
+            },
+            'visao_alta_gestao': {
+                id: 'visao_alta_gestao',
+                type: 'multiple_choice_buttons',
+                question: 'Qual a visão da alta gestão (diretoria, CEOs) sobre a importância da otimização de processos e da transformação digital hoje?',
+                options: [
+                    { value: 'prioridade_alta', label: 'Prioridade alta e investimento contínuo' },
+                    { value: 'importante_nao_prioritario', label: 'Importante, mas não prioritário no momento' },
+                    { value: 'reconhecem_sem_acao', label: 'Reconhecem a necessidade, mas sem ação prática' },
+                    { value: 'nao_preocupacao', label: 'Não é uma preocupação ou há resistência' },
+                ],
+                nextStep: 'sonho_consumo_otimizacao',
+                pathIndicator: { step: 3, total: 4, label: 'Fase 3: Análise Sistêmica' }
+            },
+            'sonho_consumo_otimizacao': {
+                id: 'sonho_consumo_otimizacao',
+                type: 'textarea_input',
+                question: 'Se sua instituição tivesse acesso ilimitado a recursos, qual seria o seu \'sonho de consumo\' em termos de otimização de processos ou tecnologia para os próximos 5 anos?',
+                inputProps: { type: 'textarea', placeholder: 'Descreva seu sonho (máx. 500 caracteres)', maxLength: 500 },
+                feedback: 'Fantástico! O RapidMapper PRO está conectando seus desafios à sua visão de futuro.',
+                nextStep: 'conclusao_transicao',
+                pathIndicator: { step: 3, total: 4, label: 'Fase 3: Análise Sistêmica' }
+            },
+
+            // --- FASE 4: CONCLUSÃO E REVELAÇÃO ---
+            'conclusao_transicao': {
+                id: 'conclusao_transicao',
+                type: 'statement',
+                title: 'Quase lá! Seu diagnóstico está pronto!',
+                message: 'Você concluiu o Diagnóstico Aprofundado HealthFlow RapidMapper PRO. Sua dedicação nos permitiu uma compreensão profunda da sua operação. A revelação está a poucos cliques!',
+                cta: 'Ver Meus Resultados',
+                nextStep: 'final_revelacao',
+                pathIndicator: { step: 4, total: 4, label: 'Fase 4: Conclusão' }
+            },
+            'final_revelacao': {
+                id: 'final_revelacao',
+                type: 'statement', // Alterado de 'statement_email' para 'statement'
+                title: 'Parabéns! Seu Diagnóstico HealthFlow PRO foi Concluído!',
+                message: (responses) => {
+                    const gargaloDisplay = responses.gargalo_critico ?
+                        questionsData.gargalo_critico.options.find(opt => opt.value === responses.gargalo_critico)?.label : 'seu processo';
+                    return `Obrigado por nos guiar. Em instantes, nossa IA, baseada em anos de expertise em Lean Healthcare e dados do mercado, está processando todas as suas respostas para gerar um relatório REVELADOR. Ele trará os gargalos mais críticos, o custo financeiro EXATO que você está perdendo e um plano de ação imediato para começar a reverter isso em ${gargaloDisplay}.`;
+                },
+                cta: 'Aguarde. Seu e-mail será seu mapa para a transformação. Prepare-se para agir!', // Usando 'cta' para o botão de avançar
+                nextStep: 'email_collect',
+                pathIndicator: { step: 4, total: 4, label: 'Fase 4: Conclusão' }
+            },
+            'email_collect': {
+                id: 'email_collect',
+                type: 'email_input',
+                question: 'Seu Relatório Personalizado VIP, com o cálculo das perdas, os gargalos prioritários e a recomendação IMEDIATA para agir, será enviado para o seu e-mail agora. Para qual endereço devemos enviá-lo?',
+                inputProps: { placeholder: 'seu.email@exemplo.com' },
+                feedback: 'Aguarde. Seu e-mail será seu mapa para a transformação. Prepare-se para agir!',
+                nextStep: 'thank_you_screen',
+                pathIndicator: { step: 4, total: 4, label: 'Fase 4: Conclusão' }
+            },
+            'thank_you_screen': {
+                id: 'thank_you_screen',
+                type: 'thank_you',
+                title: 'Diagnóstico CONCLUÍDO! Seu Relatório VIP HealthFlow PRO Está a Caminho!',
+                message: (responses) => {
+                    // Aqui você pode formatar as respostas coletadas para simular o envio ao backend.
+                    // Em uma aplicação real, você faria um fetch(apiUrl, { method: 'POST', body: JSON.stringify(responses) });
+                    console.log('Dados Coletados para Envio:', responses);
+                    return `Sua jornada de otimização começou. Verifique sua caixa de entrada AGORA. Lá, você encontrará o mapa detalhado para estancar as perdas, otimizar seu processo e elevar a eficiência da sua instituição.`;
+                },
+                upsellTitle: 'Quer Eliminar Este Problema em APENAS 7 DIAS e Transformar sua Operação?',
+                upsellMessage: 'O RapidMapper PRO diagnosticou o problema. Agora, nossa equipe de **Cirurgiões de Processos** pode implementar a solução de forma acelerada, garantindo resultados reais em uma semana. Pacote de Implantação Rápida por **R$3.500 (50% OFF para os primeiros 10 gestores)**. Esta é sua chance de virar o jogo e ser um case de sucesso! Vagas limitadas para essa transformação acelerada! Não perca tempo, sua eficiência te espera.',
+                upsellCtaLink: 'https://calendly.com/healthflow-agendamento', // Link de exemplo
+                upsellCtaText: 'AGENDAR MINHA CIRURGIA DE PROCESSOS AGORA!',
+            },
+        };
+
+        // --- COMPONENTES REACT ---
+
+        // Componente para a barra de progresso
+        const ProgressBar = ({ currentStep, totalSteps, currentPhaseLabel, phaseStep, totalPhaseSteps }) => {
+            const progress = (currentStep / totalSteps) * 100;
+            return (
+                <div className="w-full bg-gray-200 rounded-full h-4 mb-6 relative">
+                    <div className="bg-accent-1 h-4 rounded-full transition-all duration-500 ease-out" style={{ width: `${progress}%` }}></div>
+                    <span className="absolute top-0 right-0 p-1 text-xs font-semibold text-primary">{Math.round(progress)}% Completo</span>
+                    {currentPhaseLabel && (
+                        <div className="text-primary text-sm font-semibold mt-2 text-center">
+                            {currentPhaseLabel} {phaseStep && totalPhaseSteps && `(Etapa ${phaseStep} de ${totalPhaseSteps})`}
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        // Componente genérico para exibir feedback
+        const FeedbackMessage = ({ message }) => {
+            if (!message) return null;
+            return (
+                <div className="fade-enter fade-enter-active text-center mt-6 p-4 bg-blue-100 text-blue-800 rounded-lg shadow-inner border border-blue-200">
+                    <p className="font-semibold">{message}</p>
+                </div>
+            );
+        };
+
+        // Componente para o tipo de pergunta "Welcome Screen"
+        const WelcomeScreen = ({ question, onNext }) => (
+            <div className="flex flex-col items-center justify-center min-h-[50vh] text-center p-8 bg-white rounded-xl shadow-lg">
+                <h1 className="text-4xl font-black text-primary mb-4">{question.title}</h1>
+                <p className="text-xl text-gray-700 mb-8 max-w-2xl">{question.message}</p>
+                <button
+                    onClick={onNext}
+                    className="bg-accent-1 hover:bg-accent-3 text-white font-bold py-3 px-8 rounded-full shadow-lg transition duration-300 transform hover:scale-105"
+                >
+                    {question.cta}
+                </button>
+            </div>
+        );
+
+        // Componente para perguntas com input de texto e select
+        const TextSelectSplitQuestion = ({ question, onAnswer, responses }) => {
+            const [localResponses, setLocalResponses] = useState({});
+
+            const handleChange = (id, value) => {
+                setLocalResponses(prev => ({ ...prev, [id]: value }));
+            };
+
+            const handleSubmit = () => {
+                if (!localResponses[question.inputs[0].id] || !localResponses[question.inputs[1].id]) {
+                    alert('Por favor, preencha todos os campos.');
+                    return;
+                }
+                onAnswer(question.id, localResponses);
+            };
+
+            return (
+                <div className="bg-white p-8 rounded-xl shadow-lg w-full max-w-xl mx-auto">
+                    <h2 className="text-2xl font-bold text-primary mb-6">{question.question}</h2>
+                    {question.inputs.map(input => (
+                        <div key={input.id} className="mb-6">
+                            <label htmlFor={input.id} className="block text-gray-700 text-lg font-medium mb-2">{input.label}</label>
+                            {input.type === 'text' && (
+                                <input
+                                    type="text"
+                                    id={input.id}
+                                    value={localResponses[input.id] || ''}
+                                    onChange={(e) => handleChange(input.id, e.target.value)}
+                                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-accent-1"
+                                    placeholder={input.placeholder}
+                                />
+                            )}
+                            {input.type === 'select' && (
+                                <select
+                                    id={input.id}
+                                    value={localResponses[input.id] || ''}
+                                    onChange={(e) => handleChange(input.id, e.target.value)}
+                                    className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-accent-1"
+                                >
+                                    <option value="">Selecione...</option>
+                                    {input.options.map(opt => (
+                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                    ))}
+                                </select>
+                            )}
+                        </div>
+                    ))}
+                    <button
+                        onClick={handleSubmit}
+                        className="bg-accent-1 hover:bg-accent-3 text-white font-bold py-3 px-6 rounded-full shadow-lg transition duration-300 transform hover:scale-105"
+                    >
+                        Avançar
+                    </button>
+                </div>
+            );
+        };
+
+        // Componente para seleção de cards visuais
+        const ChoiceCardsQuestion = ({ question, onAnswer, selectedResponse }) => {
+            const [selectedOption, setSelectedOption] = useState(selectedResponse || null);
+
+            const handleSelect = (value) => {
+                setSelectedOption(value);
+                onAnswer(question.id, value);
+            };
+
+            return (
+                <div className="bg-white p-8 rounded-xl shadow-lg w-full max-w-3xl mx-auto text-center">
+                    <h2 className="text-2xl font-bold text-primary mb-8">{question.question}</h2>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {question.options.map(option => (
+                            <div
+                                key={option.value}
+                                className={`option-card ${selectedOption === option.value ? 'selected' : ''}`}
+                                onClick={() => handleSelect(option.value)}
+                            >
+                                <span className="icon">{option.icon}</span>
+                                <span className="text-content">{option.label}</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        };
+
+        // Componente para input de texto genérico (textarea ou input)
+        const TextInputQuestion = ({ question, onAnswer, selectedResponse }) => {
+            const [inputValue, setInputValue] = useState(selectedResponse || '');
+
+            const handleSubmit = () => {
+                if (!inputValue.trim()) {
+                    alert('Por favor, preencha o campo.');
+                    return;
+                }
+                onAnswer(question.id, inputValue);
+            };
+
+            return (
+                <div className="bg-white p-8 rounded-xl shadow-lg w-full max-w-xl mx-auto">
+                    <h2 className="text-2xl font-bold text-primary mb-6">{question.question}</h2>
+                    {question.inputProps.type === 'textarea' ? (
+                        <textarea
+                            value={inputValue}
+                            onChange={(e) => setInputValue(e.target.value)}
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-accent-1"
+                            rows={question.inputProps.rows || 4}
+                            maxLength={question.inputProps.maxLength}
+                            placeholder={question.inputProps.placeholder}
+                        ></textarea>
+                    ) : (
+                        <input
+                            type={question.inputProps.type || 'text'}
+                            value={inputValue}
+                            onChange={(e) => setInputValue(e.target.value)}
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-accent-1"
+                            maxLength={question.inputProps.maxLength}
+                            placeholder={question.inputProps.placeholder}
+                        />
+                    )}
+                    <button
+                        onClick={handleSubmit}
+                        className="mt-6 bg-accent-1 hover:bg-accent-3 text-white font-bold py-3 px-6 rounded-full shadow-lg transition duration-300 transform hover:scale-105"
+                    >
+                        Avançar
+                    </button>
+                </div>
+            );
+        };
+
+        // Componente para múltiplas textareas curtas (como etapas de processo)
+        const TextAreaMultiShortQuestion = ({ question, onAnswer, selectedResponse }) => {
+            const [inputs, setInputs] = useState(selectedResponse || Array(question.inputProps.length).fill(''));
+
+            const handleChange = (index, value) => {
+                const newInputs = [...inputs];
+                newInputs[index] = value;
+                setInputs(newInputs);
+            };
+
+            const handleSubmit = () => {
+                if (inputs.some(input => !input.trim())) {
+                    alert('Por favor, preencha todas as etapas.');
+                    return;
+                }
+                onAnswer(question.id, inputs);
+            };
+
+            return (
+                <div className="bg-white p-8 rounded-xl shadow-lg w-full max-w-xl mx-auto">
+                    <h2 className="text-2xl font-bold text-primary mb-6">{question.question}</h2>
+                    {question.inputProps.map((input, index) => (
+                        <div key={index} className="mb-4">
+                            <textarea
+                                value={inputs[index] || ''}
+                                onChange={(e) => handleChange(index, e.target.value)}
+                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-accent-1"
+                                rows={input.rows || 2}
+                                maxLength={input.maxLength}
+                                placeholder={input.placeholder}
+                            ></textarea>
+                        </div>
+                    ))}
+                    <button
+                        onClick={handleSubmit}
+                        className="mt-6 bg-accent-1 hover:bg-accent-3 text-white font-bold py-3 px-6 rounded-full shadow-lg transition duration-300 transform hover:scale-105"
+                    >
+                        Avançar
+                    </button>
+                </div>
+            );
+        };
+
+        // Componente para seleção múltipla com botões
+        const MultipleChoiceButtons = ({ question, onAnswer, selectedResponse }) => {
+            const [selectedOptions, setSelectedOptions] = useState(selectedResponse || []);
+
+            const handleSelect = (value) => {
+                const newSelection = selectedOptions.includes(value)
+                    ? selectedOptions.filter(item => item !== value)
+                    : [...selectedOptions, value];
+
+                if (question.maxSelections && newSelection.length > question.maxSelections) {
+                    alert(`Você pode selecionar no máximo ${question.maxSelections} opções.`);
+                    return;
+                }
+                setSelectedOptions(newSelection);
+            };
+
+            const handleSubmit = () => {
+                if (selectedOptions.length === 0) {
+                    alert('Por favor, selecione pelo menos uma opção.');
+                    return;
+                }
+                onAnswer(question.id, selectedOptions);
+            };
+
+            return (
+                <div className="bg-white p-8 rounded-xl shadow-lg w-full max-w-3xl mx-auto text-center">
+                    <h2 className="text-2xl font-bold text-primary mb-8">{question.question}</h2>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {question.options.map(option => (
+                            <button
+                                key={option.value}
+                                className={`py-3 px-6 rounded-full font-medium transition duration-300 border-2 ${
+                                    selectedOptions.includes(option.value)
+                                        ? 'bg-accent-1 text-white border-accent-1 shadow-md'
+                                        : 'bg-gray-100 text-primary border-gray-200 hover:bg-gray-200'
+                                }`}
+                                onClick={() => handleSelect(option.value)}
+                            >
+                                {option.label}
+                            </button>
+                        ))}
+                    </div>
+                    <button
+                        onClick={handleSubmit}
+                        className="mt-8 bg-accent-1 hover:bg-accent-3 text-white font-bold py-3 px-6 rounded-full shadow-lg transition duration-300 transform hover:scale-105"
+                    >
+                        Avançar
+                    </button>
+                </div>
+            );
+        };
+
+        // Componente para perguntas de número com select (como Tempo Diário Manual/Retrabalho)
+        const NumberSelectSplitQuestion = ({ question, onAnswer, selectedResponse }) => {
+            const [localResponses, setLocalResponses] = useState(selectedResponse || {});
+
+            const handleChange = (id, value) => {
+                setLocalResponses(prev => ({ ...prev, [id]: value }));
+            };
+
+            const handleSubmit = () => {
+                if (!localResponses[question.inputs[0].id] || !localResponses[question.inputs[1].id]) {
+                    alert('Por favor, preencha todos os campos.');
+                    return;
+                }
+                onAnswer(question.id, localResponses);
+            };
+
+            return (
+                <div className="bg-white p-8 rounded-xl shadow-lg w-full max-w-xl mx-auto">
+                    <h2 className="text-2xl font-bold text-primary mb-6">{question.question}</h2>
+                    {question.inputs.map(input => (
+                        <div key={input.id} className="mb-6">
+                            <label htmlFor={input.id} className="block text-gray-700 text-lg font-medium mb-2">{input.label}</label>
+                            {input.type === 'number' && (
+                                <input
+                                    type="number"
+                                    id={input.id}
+                                    value={localResponses[input.id] || ''}
+                                    onChange={(e) => handleChange(input.id, e.target.value)}
+                                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-accent-1"
+                                    placeholder={input.placeholder}
+                                    min={input.min}
+                                />
+                            )}
+                            {input.type === 'select' && (
+                                <select
+                                    id={input.id}
+                                    value={localResponses[input.id] || ''}
+                                    onChange={(e) => handleChange(input.id, e.target.value)}
+                                    className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-accent-1"
+                                >
+                                    <option value="">Selecione...</option>
+                                    {input.options.map(opt => (
+                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                    ))}
+                                </select>
+                            )}
+                        </div>
+                    ))}
+                    <button
+                        onClick={handleSubmit}
+                        className="bg-accent-1 hover:bg-accent-3 text-white font-bold py-3 px-6 rounded-full shadow-lg transition duration-300 transform hover:scale-105"
+                    >
+                        Avançar
+                    </button>
+                </div>
+            );
+        };
+        
+        // Componente para input numérico com select (para impacto financeiro)
+        const NumberSelectQuestion = ({ question, onAnswer, selectedResponse }) => {
+            const [numberValue, setNumberValue] = useState(selectedResponse?.number || '');
+            const [selectValue, setSelectValue] = useState(selectedResponse?.select || '');
+
+            const handleSubmit = () => {
+                if (!numberValue || !selectValue) {
+                    alert('Por favor, preencha ambos os campos.');
+                    return;
+                }
+                onAnswer(question.id, { number: numberValue, select: selectValue });
+            };
+
+            return (
+                <div className="bg-white p-8 rounded-xl shadow-lg w-full max-w-xl mx-auto">
+                    <h2 className="text-2xl font-bold text-primary mb-6">{question.question}</h2>
+                    <div className="mb-6">
+                        <label htmlFor="numberInput" className="block text-gray-700 text-lg font-medium mb-2">Valor Estimado (R$):</label>
+                        <input
+                            type="number"
+                            id="numberInput"
+                            value={numberValue}
+                            onChange={(e) => setNumberValue(e.target.value)}
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-accent-1"
+                            placeholder={question.inputProps.placeholder}
+                            min={question.inputProps.min}
+                        />
+                    </div>
+                    <div className="mb-6">
+                        <label htmlFor="selectInput" className="block text-gray-700 text-lg font-medium mb-2">Faixa de Impacto:</label>
+                        <select
+                            id="selectInput"
+                            value={selectValue}
+                            onChange={(e) => setSelectValue(e.target.value)}
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-accent-1"
+                        >
+                            <option value="">Selecione...</option>
+                            {question.selectOptions.map(opt => (
+                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                            ))}
+                        </select>
+                    </div>
+                    <button
+                        onClick={handleSubmit}
+                        className="bg-accent-1 hover:bg-accent-3 text-white font-bold py-3 px-6 rounded-full shadow-lg transition duration-300 transform hover:scale-105"
+                    >
+                        Avançar
+                    </button>
+                </div>
+            );
+        };
+
+        // Componente para escala de opinião
+        const OpinionScaleQuestion = ({ question, onAnswer, selectedResponse }) => {
+            const [selectedOption, setSelectedOption] = useState(selectedResponse || null);
+
+            const handleSubmit = (value) => {
+                setSelectedOption(value);
+                onAnswer(question.id, value);
+            };
+
+            return (
+                <div className="bg-white p-8 rounded-xl shadow-lg w-full max-w-xl mx-auto text-center">
+                    <h2 className="text-2xl font-bold text-primary mb-8">{question.question}</h2>
+                    <div className="flex flex-wrap justify-center gap-4">
+                        {question.options.map(option => (
+                            <button
+                                key={option.value}
+                                className={`py-3 px-6 rounded-full font-medium transition duration-300 border-2 ${
+                                    selectedOption === option.value
+                                        ? 'bg-accent-1 text-white border-accent-1 shadow-md'
+                                        : 'bg-gray-100 text-primary border-gray-200 hover:bg-gray-200'
+                                }`}
+                                onClick={() => handleSubmit(option.value)}
+                            >
+                                {option.label}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            );
+        };
+
+        // Componente para perguntas de sim/não ou checkbox simples
+        const CheckboxQuestion = ({ question, onAnswer, selectedResponse }) => {
+            const [isChecked, setIsChecked] = useState(selectedResponse || false);
+
+            const handleSubmit = () => {
+                onAnswer(question.id, isChecked);
+            };
+
+            return (
+                <div className="bg-white p-8 rounded-xl shadow-lg w-full max-w-xl mx-auto text-center">
+                    <h2 className="text-2xl font-bold text-primary mb-8">{question.question}</h2>
+                    <label className="inline-flex items-center cursor-pointer">
+                        <input
+                            type="checkbox"
+                            className="form-checkbox h-5 w-5 text-accent-1 rounded"
+                            checked={isChecked}
+                            onChange={(e) => setIsChecked(e.target.checked)}
+                        />
+                        <span className="ml-2 text-lg text-gray-700">{question.options[0].label}</span>
+                    </label>
+                    <button
+                        onClick={handleSubmit}
+                        className="mt-8 bg-accent-1 hover:bg-accent-3 text-white font-bold py-3 px-6 rounded-full shadow-lg transition duration-300 transform hover:scale-105"
+                    >
+                        Avançar
+                    </button>
+                </div>
+            );
+        };
+
+        // Componente para coletar e-mail
+        const EmailInputQuestion = ({ question, onAnswer, selectedResponse }) => {
+            const [email, setEmail] = useState(selectedResponse || '');
+
+            const handleSubmit = () => {
+                if (!email.match(/^[^@\s]+@[^@\s]+\.[^@\s]+$/)) {
+                    alert('Por favor, insira um e-mail válido.');
+                    return;
+                }
+                onAnswer(question.id, email);
+            };
+
+            return (
+                <div className="bg-white p-8 rounded-xl shadow-lg w-full max-w-xl mx-auto">
+                    <h2 className="text-2xl font-bold text-primary mb-6">{question.question}</h2>
+                    <input
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-accent-1"
+                        placeholder={question.inputProps.placeholder}
+                    />
+                    <button
+                        onClick={handleSubmit}
+                        className="mt-6 bg-accent-1 hover:bg-accent-3 text-white font-bold py-3 px-6 rounded-full shadow-lg transition duration-300 transform hover:scale-105"
+                    >
+                        Avançar
+                    </button>
+                </div>
+            );
+        };
+
+        // Componente para telas de agradecimento/upsell
+        const ThankYouScreen = ({ question, responses, onRestart }) => { // Adicionado onRestart
+            const messageText = typeof question.message === 'function' ? question.message(responses) : question.message;
+
+            // Simula o envio de dados para o backend (em um ambiente real, seria um fetch API)
+            useEffect(() => {
+                // Aqui você faria o fetch para o seu backend com os `responses`
+                console.log('Simulando envio final de dados para o backend:', responses);
+                // Ex: fetch('/api/submit-diagnosis', { method: 'POST', body: JSON.stringify(responses) });
+            }, []);
+
+            return (
+                <div className="flex flex-col items-center justify-center min-h-[70vh] text-center p-8 bg-white rounded-xl shadow-lg max-w-4xl mx-auto">
+                    <h1 className="text-4xl font-black text-primary mb-4">{question.title}</h1>
+                    <p className="text-xl text-gray-700 mb-8 max-w-3xl">{messageText}</p>
+
+                    <div className="w-full bg-accent-1 p-8 rounded-xl shadow-lg mb-8">
+                        <h2 className="text-3xl font-bold text-highlight mb-4">{question.upsellTitle}</h2>
+                        <p className="text-lg text-white mb-6" dangerouslySetInnerHTML={{ __html: question.upsellMessage.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>') }}></p>
+                        <a
+                            href={question.upsellCtaLink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="bg-highlight hover:bg-accent-4 text-primary font-black text-xl py-4 px-10 rounded-full shadow-xl transition duration-300 transform hover:scale-105 uppercase"
+                        >
+                            {question.upsellCtaText}
+                        </a>
+                    </div>
+                    <button
+                        onClick={onRestart} // Botão para voltar ao início
+                        className="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded-full shadow-md transition duration-300 transform hover:scale-105 mt-4"
+                    >
+                        Voltar ao Início
+                    </button>
+                </div>
+            );
+        };
+
+        // Componente para telas de statement/transição
+        const StatementScreen = ({ question, onNext, responses }) => {
+            const messageText = typeof question.message === 'function' ? question.message(responses) : question.message;
+            const titleText = typeof question.title === 'function' ? question.title(responses) : question.title;
+            return (
+                <div className="flex flex-col items-center justify-center min-h-[50vh] text-center p-8 bg-white rounded-xl shadow-lg">
+                    {titleText && <h1 className="text-3xl font-black text-primary mb-4">{titleText}</h1>}
+                    <p className="text-xl text-gray-700 mb-8 max-w-2xl">{messageText}</p>
+                    {question.cta && (
+                        <button
+                            onClick={onNext}
+                            className="bg-accent-1 hover:bg-accent-3 text-white font-bold py-3 px-8 rounded-full shadow-lg transition duration-300 transform hover:scale-105"
+                        >
+                            {question.cta}
+                        </button>
+                    )}
+                </div>
+            );
+        };
+
+        // Novo Componente para o Mini-Relatório da IA
+        const AIMiniReportScreen = ({ question, onNext, responses }) => {
+            const [reportData, setReportData] = useState(null);
+            const [loadingReport, setLoadingReport] = useState(true);
+
+            useEffect(() => {
+                setLoadingReport(true);
+                // Simulação da chamada à Gemini API
+                setTimeout(() => {
+                    const selectedGargalo = responses.gargalo_critico;
+                    let summary = "Sua análise detalhada revelou insights importantes.";
+                    let financialImpact = "Não foi possível estimar o impacto financeiro com os dados fornecidos.";
+
+                    if (selectedGargalo === 'agendamento') {
+                        summary = "Seu processo de agendamento apresenta gargalos significativos, especialmente na confirmação e rastreamento de no-shows.";
+                        financialImpact = "Estimamos uma perda de aproximadamente R$ 5.000 a R$ 15.000 ao mês devido a remarcações e faltas.";
+                    } else if (selectedGargalo === 'faturamento') {
+                        summary = "O faturamento da sua instituição está sofrendo com glosas e retrabalhos, impactando diretamente o fluxo de caixa.";
+                        financialImpact = "Estimamos uma perda de aproximadamente R$ 8.000 a R$ 25.000 ao mês em receita não realizada devido a erros de faturamento.";
+                    } else if (selectedGargalo === 'fluxo_pacientes') {
+                        summary = "A lentidão no fluxo de pacientes está gerando insatisfação e ociosidade de recursos, desde a chegada até o atendimento final.";
+                        financialImpact = "Estimamos uma perda de aproximadamente R$ 7.000 a R$ 20.000 ao mês devido à ineficiência no fluxo de pacientes.";
+                    } else if (selectedGargalo === 'laudos') {
+                        summary = "Atrasos na liberação de laudos e resultados estão comprometendo a agilidade do diagnóstico e a satisfação de pacientes e médicos.";
+                        financialImpact = "Estimamos uma perda de aproximadamente R$ 6.000 a R$ 18.000 ao mês devido a laudos atrasados e retrabalho.";
+                    } else if (selectedGargalo === 'equipe_resistente') {
+                        summary = "A resistência da equipe à novas tecnologias e rotinas está freando a inovação e a produtividade na sua instituição.";
+                        financialImpact = "O custo da não-adoção e do retrabalho pode chegar a R$ 4.000 a R$ 12.000 ao mês.";
+                    } else if (selectedGargalo === 'estoque') {
+                        summary = "A gestão ineficiente do estoque está resultando em perdas por vencimento, falta de insumos e custos operacionais elevados.";
+                        financialImpact = "Estimamos uma perda de aproximadamente R$ 3.000 a R$ 10.000 ao mês devido a problemas de estoque.";
+                    } else if (selectedGargalo === 'outro_gargalo') {
+                        summary = `Sua descrição do desafio "${responses.outro_gargalo_detalhe}" foi clara. Nossa IA identificou pontos de atenção no seu processo.`;
+                        financialImpact = "O impacto financeiro pode ser significativo, dependendo da escala do problema.";
+                    }
+
+                    setReportData({ summary, financialImpact });
+                    setLoadingReport(false);
+                }, 2500); // Simula um tempo de processamento da IA
+            }, [responses]);
+
+            return (
+                <div className="bg-white p-8 rounded-xl shadow-lg w-full max-w-2xl mx-auto text-center">
+                    <h2 className="text-3xl font-black text-primary mb-6">{question.title}</h2>
+                    {loadingReport ? (
+                        <div className="flex flex-col items-center justify-center min-h-[20vh]">
+                            <div className="loading-dots mb-4">
+                                <span></span><span></span><span></span>
+                            </div>
+                            <p className="text-xl text-primary font-semibold">HealthFlow AI analisando seus dados...</p>
+                        </div>
+                    ) : (
+                        <div className="fade-enter fade-enter-active">
+                            <p className="text-xl text-gray-700 mb-6">{reportData.summary}</p>
+                            <div className="bg-blue-50 p-4 rounded-lg mb-6 border border-blue-200">
+                                <p className="text-lg font-semibold text-blue-800">Impacto Financeiro Estimado:</p>
+                                <p className="text-2xl font-bold text-blue-900 mt-2">{reportData.financialImpact}</p>
+                            </div>
+                            <button
+                                onClick={() => onNext()}
+                                className="bg-accent-1 hover:bg-accent-3 text-white font-bold py-3 px-8 rounded-full shadow-lg transition duration-300 transform hover:scale-105"
+                            >
+                                {question.cta}
+                            </button>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+        
+        // Componente principal da aplicação
+        const App = () => {
+            const [currentQuestionId, setCurrentQuestionId] = useState('welcome');
+            const [responses, setResponses] = useState({});
+            const [feedbackMessage, setFeedbackMessage] = useState(null);
+            const [isLoading, setIsLoading] = useState(false);
+            const [history, setHistory] = useState([]); // Histórico de perguntas visitadas
+            const currentQuestion = questionsData[currentQuestionId];
+        
+            // Calcula o total de perguntas para a barra de progresso (aproximado)
+            const totalQuestions = Object.keys(questionsData).length; // Isso é uma contagem linear, não de ramificação
+            const currentQuestionIndex = Object.keys(questionsData).indexOf(currentQuestionId) + 1;
+        
+            // Ref para a rolagem
+            const contentRef = useRef(null);
+        
+            // Efeito para rolar para o topo quando a pergunta muda
+            useEffect(() => {
+                if (contentRef.current) {
+                    contentRef.current.scrollIntoView({ behavior: 'smooth' });
+                }
+            }, [currentQuestionId]);
+        
+            const handleAnswer = (questionId, answer) => {
+                const updatedResponses = { ...responses, [questionId]: answer };
+                setResponses(updatedResponses);
+        
+                // Adiciona a pergunta atual ao histórico ANTES de avançar
+                setHistory(prevHistory => [...prevHistory, currentQuestionId]);
+        
+                let nextStepId;
+                if (typeof currentQuestion.nextStep === 'function') {
+                    nextStepId = currentQuestion.nextStep(updatedResponses);
+                } else {
+                    nextStepId = currentQuestion.nextStep;
+                }
+        
+                // Processar feedback antes de avançar
+                let feedback = null;
+                if (currentQuestion.feedback) {
+                    feedback = typeof currentQuestion.feedback === 'function'
+                        ? currentQuestion.feedback(updatedResponses, answer)
+                        : currentQuestion.feedback;
+                }
+                setFeedbackMessage(feedback);
+        
+                setIsLoading(true); // Simula IA pensando
+                // Reduzindo o tempo de espera para um processamento mais rápido
+                setTimeout(() => {
+                    setIsLoading(false);
+                    setFeedbackMessage(null); // Limpa o feedback para a próxima tela
+                    setCurrentQuestionId(nextStepId);
+                }, feedback ? 700 : 200); // Tempos de espera mais curtos
+            };
+        
+            const handleGoBack = () => {
+                if (history.length > 0) {
+                    const previousQuestionId = history[history.length - 1];
+                    setHistory(prevHistory => prevHistory.slice(0, -1)); // Remove o último item do histórico
+                    setCurrentQuestionId(previousQuestionId);
+                    setFeedbackMessage(null); // Limpa qualquer feedback ao voltar
+                    setIsLoading(false); // Garante que não está em estado de loading
+                }
+            };
+
+            const handleRestart = () => {
+                setCurrentQuestionId('welcome');
+                setResponses({});
+                setHistory([]);
+                setFeedbackMessage(null);
+                setIsLoading(false);
+            };
+
+            const renderQuestion = () => {
+                if (isLoading) {
+                    return (
+                        <div className="flex flex-col items-center justify-center min-h-[50vh]">
+                            <div className="loading-dots mb-4">
+                                <span></span><span></span><span></span>
+                            </div>
+                            <p className="text-xl text-primary font-semibold">HealthFlow AI analisando seus dados...</p>
+                        </div>
+                    );
+                }
+        
+                switch (currentQuestion.type) {
+                    case 'welcome':
+                        return <WelcomeScreen question={currentQuestion} onNext={() => handleAnswer(currentQuestion.id, true)} />;
+                    case 'text_select_split':
+                        return <TextSelectSplitQuestion question={currentQuestion} onAnswer={handleAnswer} responses={responses[currentQuestion.id]} />;
+                    case 'choice_cards':
+                        return <ChoiceCardsQuestion question={currentQuestion} onAnswer={handleAnswer} selectedResponse={responses[currentQuestion.id]} />;
+                    case 'text_input':
+                        return <TextInputQuestion question={currentQuestion} onAnswer={handleAnswer} selectedResponse={responses[currentQuestion.id]} />;
+                    case 'textarea_input': // Adicionado o case para textarea_input
+                        return <TextInputQuestion question={currentQuestion} onAnswer={handleAnswer} selectedResponse={responses[currentQuestion.id]} />;
+                    case 'textarea_multi': // Este tipo não está sendo usado com `inputProps` array na `questionsData` fornecida
+                        return <TextAreaMultiShortQuestion question={currentQuestion} onAnswer={handleAnswer} selectedResponse={responses[currentQuestion.id]} />;
+                    case 'multiple_choice_buttons':
+                        return <MultipleChoiceButtons question={currentQuestion} onAnswer={handleAnswer} selectedResponse={responses[currentQuestion.id]} />;
+                    case 'number_select_split':
+                        return <NumberSelectSplitQuestion question={currentQuestion} onAnswer={handleAnswer} responses={responses[currentQuestion.id]} />;
+                    case 'number_select':
+                        return <NumberSelectQuestion question={currentQuestion} onAnswer={handleAnswer} selectedResponse={responses[currentQuestion.id]} />;
+                    case 'opinion_scale':
+                        return <OpinionScaleQuestion question={currentQuestion} onAnswer={handleAnswer} selectedResponse={responses[currentQuestion.id]} />;
+                    case 'checkbox':
+                        return <CheckboxQuestion question={currentQuestion} onAnswer={handleAnswer} selectedResponse={responses[currentQuestion.id]} />;
+                    case 'email_input':
+                        return <EmailInputQuestion question={currentQuestion} onAnswer={handleAnswer} selectedResponse={responses[currentQuestion.id]} />;
+                    case 'thank_you':
+                        return <ThankYouScreen question={currentQuestion} responses={responses} onRestart={handleRestart} />;
+                    case 'statement': // Adicionado o case para 'statement'
+                        return <StatementScreen question={currentQuestion} onNext={() => handleAnswer(currentQuestion.id, true)} responses={responses} />;
+                    case 'textarea_multi_short':
+                        return <TextAreaMultiShortQuestion question={currentQuestion} onAnswer={handleAnswer} selectedResponse={responses[currentQuestion.id]} />;
+                    case 'ai_mini_report': // Novo tipo de pergunta para o mini-relatório da IA
+                        return <AIMiniReportScreen question={currentQuestion} onNext={() => handleAnswer(currentQuestion.id, true)} responses={responses} />;
+                    default:
+                        return <p className="text-red-500 text-center">Tipo de pergunta não reconhecido: {currentQuestion.type}</p>;
+                }
+            };
+        
+            return (
+                <div className="min-h-screen flex flex-col items-center p-4 bg-f0f4f8 text-primary">
+                    <header className="w-full max-w-4xl text-center py-6">
+                        <h1 className="text-3xl font-black text-primary">HealthFlow Pulse</h1>
+                        <p className="text-lg text-gray-600 mt-2">Diagnóstico Inteligente de Processos em Saúde</p>
+                    </header>
+        
+                    <main className="flex-grow w-full max-w-4xl flex items-center justify-center my-8" ref={contentRef}>
+                        <div className="w-full">
+                            {currentQuestion.id !== 'welcome' && currentQuestion.id !== 'thank_you_screen' && (
+                                <ProgressBar
+                                    currentStep={currentQuestionIndex}
+                                    totalSteps={totalQuestions}
+                                    currentPhaseLabel={currentQuestion.pathIndicator?.label}
+                                    phaseStep={currentQuestion.pathIndicator?.step}
+                                    totalPhaseSteps={currentQuestion.pathIndicator?.total}
+                                />
+                            )}
+                            {renderQuestion()}
+                            <FeedbackMessage message={feedbackMessage} />
+                            {history.length > 0 && currentQuestion.type !== 'welcome' && currentQuestion.type !== 'thank_you' && (
+                                <div className="text-center mt-8">
+                                    <button
+                                        onClick={handleGoBack}
+                                        className="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded-full shadow-md transition duration-300 transform hover:scale-105"
+                                    >
+                                        ← Voltar
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    </main>
+        
+                    <footer className="w-full max-w-4xl text-center py-4 text-gray-500 text-sm">
+                        © 2025 HealthFlow Revolution. Todos os direitos reservados.
+                    </footer>
+                </div>
+            );
+        };
+        
+        // Renderiza a aplicação React na div com id "root"
+        const container = document.getElementById('root');
+        const root = createRoot(container);
+        root.render(<App />);
+
+    </script>
+</body>
+</html>
