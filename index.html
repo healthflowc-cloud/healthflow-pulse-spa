@@ -11,6 +11,8 @@
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <!-- Carrega Babel para transpilar JSX no navegador (apenas para desenvolvimento/demonstração de arquivo único) -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Carrega Supabase JS SDK via CDN -->
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
     <!-- Font Inter -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1615,14 +1617,14 @@
             },
             'final_revelacao': {
                 id: 'final_revelacao',
-                type: 'statement', // Alterado de 'statement_email' para 'statement'
+                type: 'statement', 
                 title: 'Parabéns! Seu Diagnóstico HealthFlow PRO foi Concluído!',
                 message: (responses) => {
                     const gargaloDisplay = responses.gargalo_critico ?
                         questionsData.gargalo_critico.options.find(opt => opt.value === responses.gargalo_critico)?.label : 'seu processo';
                     return `Obrigado por nos guiar. Em instantes, nossa IA, baseada em anos de expertise em Lean Healthcare e dados do mercado, está processando todas as suas respostas para gerar um relatório REVELADOR. Ele trará os gargalos mais críticos, o custo financeiro EXATO que você está perdendo e um plano de ação imediato para começar a reverter isso em ${gargaloDisplay}.`;
                 },
-                cta: 'Aguarde. Seu e-mail será seu mapa para a transformação. Prepare-se para agir!', // Usando 'cta' para o botão de avançar
+                cta: 'Aguarde. Seu e-mail será seu mapa para a transformação. Prepare-se para agir!', 
                 nextStep: 'email_collect',
                 pathIndicator: { step: 4, total: 4, label: 'Fase 4: Conclusão' }
             },
@@ -1632,7 +1634,7 @@
                 question: 'Seu Relatório Personalizado VIP, com o cálculo das perdas, os gargalos prioritários e a recomendação IMEDIATA para agir, será enviado para o seu e-mail agora. Para qual endereço devemos enviá-lo?',
                 inputProps: { placeholder: 'seu.email@exemplo.com' },
                 feedback: 'Aguarde. Seu e-mail será seu mapa para a transformação. Prepare-se para agir!',
-                nextStep: 'thank_you_screen',
+                nextStep: 'thank_you_screen', 
                 pathIndicator: { step: 4, total: 4, label: 'Fase 4: Conclusão' }
             },
             'thank_you_screen': {
@@ -2127,10 +2129,169 @@
 
             // Simula o envio de dados para o backend (em um ambiente real, seria um fetch API)
             useEffect(() => {
-                // Aqui você faria o fetch para o seu backend com os `responses`
-                console.log('Simulando envio final de dados para o backend:', responses);
-                // Ex: fetch('/api/submit-diagnosis', { method: 'POST', body: JSON.stringify(responses) });
-            }, []);
+                const sendDiagnosisToSupabase = async () => {
+                    try {
+                        // --- MAPEAMENTO DAS RESPOSTAS PARA AS COLUNAS DO SUPABASE ---
+                        const dataToSave = {
+                            // Perguntas Iniciais (Fase 1)
+                            funcao: responses.info_inicial?.funcao || null,
+                            instituicao_tipo: responses.info_inicial?.instituicao_tipo || null,
+                            gargalo_critico_selecionado: responses.gargalo_critico || null,
+
+                            // Caminho A: Agendamento
+                            ag_canais: responses.agendamento_canais ? responses.agendamento_canais.join(',') : null, // Múltipla escolha como string
+                            ag_sistema_principal: responses.agendamento_sistema_principal || null,
+                            ag_falha_erp: responses.agendamento_falha_erp || null,
+                            ag_passo_critico_manual: responses.agendamento_passo_critico_manual || null,
+                            ag_perc_remarcacoes: responses.agendamento_percentual_remarcacoes || null,
+                            ag_confirmacao: responses.agendamento_confirmacao || null,
+                            ag_ticket_medio_perdido: responses.agendamento_ticket_medio ? parseFloat(responses.agendamento_ticket_medio) : null,
+                            ag_visibilidade_sistema: responses.agendamento_visibilidade_sistema || null,
+                            ag_mudanca_perfeito: responses.agendamento_mudanca_perfeito || null,
+
+                            // Caminho B: Faturamento
+                            ft_volume_mensal: responses.faturamento_volume_mensal || null,
+                            ft_sistema_principal: responses.faturamento_sistema_principal || null,
+                            ft_falha_erp: responses.faturamento_falha_erp || null,
+                            ft_etapa_obscura_manual: responses.faturamento_etapa_obscura_manual || null,
+                            ft_perc_glosas: responses.faturamento_percentual_glosas || null,
+                            ft_erros_comuns_glosas: responses.faturamento_erros_comuns_glosas ? responses.faturamento_erros_comuns_glosas.join(',') : null,
+                            ft_tempo_retrabalho: responses.faturamento_tempo_retrabalho || null,
+                            ft_visibilidade_sistema: responses.faturamento_visibilidade_sistema || null,
+                            ft_eliminar_erro_ganho: responses.faturamento_eliminar_erro_ganho || null,
+
+                            // Caminho C: Fluxo de Pacientes
+                            fp_jornada_etapas: responses.pacientes_percurso_as_is ? responses.pacientes_percurso_as_is.join('\n') : null, // Múltiplas linhas como string
+                            fp_etapa_fila_invisivel: responses.pacientes_fila_invisivel || null,
+                            fp_repeticao_informacoes: responses.pacientes_repeticao_informacoes ? responses.pacientes_repeticao_informacoes.join(',') : null,
+                            fp_tempo_espera_atendimento: responses.pacientes_tempo_espera_atendimento || null,
+                            fp_causas_atrasos: responses.pacientes_causas_atrasos_inesperados ? responses.pacientes_causas_atrasos_inesperados.join(',') : null,
+                            fp_transferencia_info: responses.pacientes_transferencia_informacao || null,
+                            fp_visao_tempo_real: responses.pacientes_visao_tempo_real || null,
+                            fp_sistema_gestao_fluxo: responses.pacientes_sistema_gestao_fluxo || null,
+                            fp_obstaculos_sistema_fluxo: responses.pacientes_obstaculos_sistema_fluxo || null,
+                            fp_fluxo_info_sistema: responses.pacientes_fluxo_informacao_sistema || null,
+                            fp_desafio_coordenacao_manual: responses.pacientes_desafio_coordenacao_manual || null,
+                            fp_pessoas_coordenacao: responses.pacientes_pessoas_tempo_fluxo?.pessoas_envolvidas ? parseInt(responses.pacientes_pessoas_tempo_fluxo.pessoas_envolvidas) : null,
+                            fp_tempo_manual_coordenacao: responses.pacientes_pessoas_tempo_fluxo?.tempo_manual_fluxo || null,
+                            fp_impacto_financeiro_lentidao: responses.pacientes_impacto_financeiro_lentidao?.number ? parseFloat(responses.pacientes_impacto_financeiro_lentidao.number) : null,
+                            fp_satisfacao_tempo_espera: responses.pacientes_satisfacao_tempo_espera || null,
+                            fp_impacto_equipe_lentidao: responses.pacientes_impacto_equipe_lentidao ? responses.pacientes_impacto_equipe_lentidao.join(',') : null,
+                            fp_mudanca_ideal: responses.pacientes_mudanca_ideal || null,
+
+                            // Caminho D: Laudos & Resultados
+                            lr_etapas_principais: responses.laudos_etapas_principais ? responses.laudos_etapas_principais.join('\n') : null,
+                            lr_info_presa: responses.laudos_info_presa ? responses.laudos_info_presa.join(',') : null,
+                            lr_processo_atrasados: responses.laudos_processo_atrasados || null,
+                            lr_tempo_simples: responses.laudos_tempo_liberacao_simples || null,
+                            lr_tempo_complexos: responses.laudos_tempo_liberacao_complexos || null,
+                            lr_causas_atrasos: responses.laudos_causas_atrasos_cronicos ? responses.laudos_causas_atrasos_cronicos.join(',') : null,
+                            lr_frequencia_refeitos: responses.laudos_frequencia_refeitos || null,
+                            lr_sistema_principal: responses.laudos_sistema_principal || null,
+                            lr_modulos_obstaculos: responses.laudos_modulos_obstaculos || null,
+                            lr_fluxo_info_sistema: responses.laudos_info_inserida_fluxo || null,
+                            lr_desafio_manual: responses.laudos_desafio_manual || null,
+                            lr_pessoas_laudos: responses.laudos_pessoas_tempo_manual?.pessoas_envolvidas ? parseInt(responses.laudos_pessoas_tempo_manual.pessoas_envolvidas) : null,
+                            lr_tempo_manual_laudos: responses.laudos_pessoas_tempo_manual?.tempo_manual_laudos || null,
+                            lr_impacto_financeiro: responses.laudos_impacto_financeiro_estimado?.number ? parseFloat(responses.laudos_impacto_financeiro_estimado.number) : null,
+                            lr_satisfacao_pacientes_medicos: responses.laudos_satisfacao_paciente_medicos || null,
+                            lr_impacto_equipe_demora: responses.laudos_impacto_equipe_demora ? responses.laudos_impacto_equipe_demora.join(',') : null,
+                            lr_mudanca_ideal: responses.laudos_fluxo_ideal || null,
+
+                            // Caminho E: Equipe Resistente
+                            er_tipo_resistencia: responses.equipe_tipo_resistencia ? responses.equipe_tipo_resistencia.join(',') : null,
+                            er_resistencia_evidente_em: responses.equipe_resistencia_evidente_em ? responses.equipe_resistencia_evidente_em.join(',') : null,
+                            er_departamentos_resistencia: responses.equipe_departamentos_resistencia ? responses.equipe_departamentos_resistencia.join(',') : null,
+                            er_processo_introducao: responses.equipe_processo_introducao_tecnologia ? responses.equipe_processo_introducao_tecnologia.join('\n') : null,
+                            er_comunicacao_necessidade: responses.equipe_comunicacao_necessidade || null,
+                            er_formato_treinamento: responses.equipe_formato_treinamento || null,
+                            er_suporte_continuo: responses.equipe_suporte_continuo || null,
+                            er_sistema_principal: responses.equipe_sistema_principal_resistencia || null,
+                            er_modulos_dificeis: responses.equipe_modulos_dificeis || null,
+                            er_informacao_atualizacoes: responses.equipe_informacao_atualizacoes ? responses.equipe_informacao_atualizacoes.join(',') : null,
+                            er_desafio_manual: responses.equipe_desafio_padronizacao_manual || null,
+                            er_cultura_inovacao: responses.equipe_cultura_inovacao || null,
+                            er_impacto_financeiro: responses.equipe_impacto_financeiro_baixa_adocao?.number ? parseFloat(responses.equipe_impacto_financeiro_baixa_adocao.number) : null,
+                            er_impacto_visivel_resistencia: responses.equipe_impacto_visivel_resistencia ? responses.equipe_impacto_visivel_resistencia.join(',') : null,
+                            er_impacto_moral_equipe: responses.equipe_impacto_moral_equipe || null,
+                            er_beneficio_hackear_resistencia: responses.equipe_garantir_adocao_total || null,
+
+                            // Caminho F: Gestão de Estoque
+                            ei_fluxo_insumo_etapas: responses.estoque_fluxo_insumo_as_is ? responses.estoque_fluxo_insumo_as_is.join('\n') : null,
+                            ei_info_imprecisa: responses.estoque_info_imprecisa ? responses.estoque_info_imprecisa.join(',') : null,
+                            ei_processo_falta_excesso: responses.estoque_processo_falta_excesso || null,
+                            ei_valor_medio_estoque: responses.estoque_valor_medio_mensal || null,
+                            ei_frequencia_problemas: responses.estoque_frequencia_problemas || null,
+                            ei_desafios_principais: responses.estoque_desafios_principais ? responses.estoque_desafios_principais.join(',') : null,
+                            ei_volume_descartado: responses.estoque_volume_descartado || null,
+                            ei_sistema_principal: responses.estoque_sistema_principal || null,
+                            ei_modulos_obstaculos: responses.estoque_modulos_obstaculos || null,
+                            ei_fluxo_info_sistema: responses.estoque_info_inserida_fluxo || null,
+                            ei_desafio_manual: responses.estoque_desafio_manual || null,
+                            ei_pessoas_estoque: responses.estoque_pessoas_tempo_manual?.pessoas_envolvidas ? parseInt(responses.estoque_pessoas_tempo_manual.pessoas_envolvidas) : null,
+                            ei_tempo_manual_estoque: responses.estoque_pessoas_tempo_manual?.tempo_manual_estoque || null,
+                            ei_impacto_financeiro: responses.estoque_impacto_financeiro_estimado?.number ? parseFloat(responses.estoque_impacto_financeiro_estimado.number) : null,
+                            ei_impacto_visivel_operacao: responses.estoque_impacto_visivel_operacao ? responses.estoque_impacto_visivel_operacao.join(',') : null,
+                            ei_satisfacao_equipes: responses.estoque_satisfacao_equipes || null,
+                            ei_mudanca_ideal: responses.estoque_mudanca_ideal || null,
+
+                            // Caminho G: Outro (Desafio Personalizado)
+                            og_detalhe_gargalo: responses.outro_gargalo_detalhe || null,
+                            og_envolvidos: responses.outro_gargalo_envolvidos || null,
+                            og_sintoma: responses.outro_gargalo_sintoma || null,
+                            og_fluxo_etapas: responses.outro_gargalo_fluxo_etapas || null,
+                            og_comunicacao_erros: responses.outro_gargalo_comunicacao_erros ? responses.outro_gargalo_comunicacao_erros.join(',') : null,
+                            og_pessoas_execucao: responses.outro_gargalo_pessoas_tempo?.pessoas_envolvidas ? parseInt(responses.outro_gargalo_pessoas_tempo.pessoas_envolvidas) : null,
+                            og_tempo_manual_execucao: responses.outro_gargalo_pessoas_tempo?.tempo_manual || null,
+                            og_sistema_principal: responses.outro_gargalo_sistema_principal || null,
+                            og_modulos_obstaculos: responses.outro_gargalo_modulos_obstaculos || null,
+                            og_fluxo_info_sistema: responses.outro_gargalo_fluxo_informacao_sistema || null,
+                            og_desafio_manual: responses.outro_gargalo_desafio_manual || null,
+                            og_impacto_financeiro: responses.outro_gargalo_impacto_financeiro?.number ? parseFloat(responses.outro_gargalo_impacto_financeiro.number) : null,
+                            og_causas: responses.outro_gargalo_causas ? responses.outro_gargalo_causas.join(',') : null,
+                            og_satisfacao_qualidade: responses.outro_gargalo_satisfacao_qualidade || null,
+                            og_impacto_equipe: responses.outro_gargalo_impacto_equipe ? responses.outro_gargalo_impacto_equipe.join(',') : null,
+                            og_processo_ideal: responses.outro_gargalo_processo_ideal || null,
+
+                            // Perguntas da Fase 3: Análise Sistêmica e Visão Ampliada
+                            sistemas_criticos_1: responses.sistemas_criticos?.[0] || null,
+                            sistemas_criticos_2: responses.sistemas_criticos?.[1] || null,
+                            sistemas_criticos_3: responses.sistemas_criticos?.[2] || null,
+                            nivel_integracao: responses.nivel_integracao || null,
+                            processo_tomada_decisao: responses.processo_tomada_decisao || null,
+                            visao_alta_gestao: responses.visao_alta_gestao || null,
+                            sonho_consumo_5anos: responses.sonho_consumo_otimizacao || null,
+
+                            // Informações de Contato e Insights da IA
+                            email_contato: responses.email_collect || null,
+                            ai_summary: responses.ai_mini_report?.summary || null, // Insights da IA
+                            ai_financial_impact: responses.ai_mini_report?.financialImpact || null, // Insights da IA
+
+                            // Campo para armazenar todas as respostas brutas (opcional, mas recomendado para backup)
+                            respostas_completas_json: responses // Salva o objeto completo de respostas
+                        };
+
+                        // --- CHAMADA PARA O SUPABASE ---
+                        // Esta é a linha que envia os dados para a sua tabela no Supabase
+                        const { data, error } = await supabase
+                            .from('diagnosticos_pulse') // Nome da sua tabela no Supabase
+                            .insert([dataToSave]); // Insere o objeto mapeado como um novo registro
+
+                        if (error) {
+                            console.error('Erro ao salvar diagnóstico no Supabase:', error);
+                            alert('Erro ao salvar seu diagnóstico. Por favor, tente novamente.');
+                        } else {
+                            console.log('Diagnóstico salvo no Supabase com sucesso!', data);
+                            // Aqui você pode adicionar um feedback visual de sucesso
+                        }
+                    } catch (error) {
+                        console.error('Erro inesperado ao enviar diagnóstico:', error);
+                        alert('Ocorreu um erro inesperado. Por favor, tente novamente.');
+                    }
+                };
+
+                sendDiagnosisToSupabase(); // A função é chamada quando a tela de agradecimento é renderizada
+            }, [responses]); // O efeito roda quando as respostas finais estão prontas
 
             return (
                 <div className="flex flex-col items-center justify-center min-h-[70vh] text-center p-8 bg-white rounded-xl shadow-lg max-w-4xl mx-auto">
